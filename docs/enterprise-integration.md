@@ -70,6 +70,16 @@ Invoke-RestMethod `
   -Uri http://127.0.0.1:8000/integrations/log-analytics/poll-alerts
 ```
 
+To raise incidents from a custom KQL query, the result must project:
+
+- `TimeGenerated`
+- `Severity`
+- `RuleName`
+- `ResourceId`
+- `Description`
+
+Use `samples/kql/azuremetrics-firewall-incident-signals.kql` as a starting point for Azure Firewall metric breaches. The analysis query in `samples/kql/azuremetrics-operational-summary.kql` is intentionally informational and should not be used directly for incident creation.
+
 ## Resource Graph Discovery
 
 The discovery endpoint starts with:

@@ -11,6 +11,7 @@ from aiops_agent.models import (
     LogAnalyticsQueryResponse,
     ResourceDiscoveryRequest,
 )
+from aiops_agent.workflow import is_log_analytics_incident_signal
 
 
 def test_integration_status_reports_enterprise_modes(tmp_path):
@@ -122,7 +123,30 @@ def test_default_alert_signal_query_is_enterprise_kql():
     assert "Event" in query
     assert "Perf" in query
     assert "AzureMetrics" in query
+    assert "SNATPortUtilization" in query
+    assert "VipAvailability" in query
+    assert "ObservedValue >= 70" in query
     assert "take 10" in query
+
+
+def test_log_analytics_incident_signal_requires_alert_shape():
+    assert is_log_analytics_incident_signal(
+        {
+            "TimeGenerated": "2026-05-27T10:00:00Z",
+            "Severity": "Sev3",
+            "RuleName": "Azure Firewall metric breach: SNATPortUtilization",
+            "ResourceId": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/azureFirewalls/fw",
+            "Description": "SNATPortUtilization observed value 75 Percent",
+        }
+    )
+    assert not is_log_analytics_incident_signal(
+        {
+            "ResourceId": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Network/azureFirewalls/fw",
+            "MetricName": "NetworkRuleHit",
+            "Samples": 55,
+            "TotalValue": 24223,
+        }
+    )
 
 
 def test_discover_resources_is_configuration_only_with_subscriptions(tmp_path):

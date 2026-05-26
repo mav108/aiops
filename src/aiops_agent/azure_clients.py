@@ -367,7 +367,8 @@ union isfuzzy=true
     AzureMetrics
     | where TimeGenerated >= window
     | where MetricName in~ ("Percentage CPU", "CpuPercentage", "CPU Credits Remaining",
-        "Available Memory Bytes", "UsedCapacity", "Transactions", "Ingress", "Egress")
+        "Available Memory Bytes", "UsedCapacity", "FirewallHealth", "SNATPortUtilization",
+        "VipAvailability")
     | summarize
         Average=max(Average),
         Maximum=max(Maximum),
@@ -375,11 +376,22 @@ union isfuzzy=true
         by bin(TimeGenerated, 5m), ResourceId, MetricName, UnitName
     | extend ObservedValue=coalesce(Maximum, Average, Total)
     | where isnotempty(ResourceId) and isnotempty(ObservedValue)
+    | where
+        (MetricName in~ ("Percentage CPU", "CpuPercentage") and ObservedValue >= 90)
+        or (MetricName =~ "CPU Credits Remaining" and ObservedValue <= 10)
+        or (MetricName =~ "Available Memory Bytes" and ObservedValue <= 1073741824)
+        or (MetricName =~ "UsedCapacity" and ObservedValue >= 80)
+        or (MetricName =~ "FirewallHealth" and ObservedValue < 100)
+        or (MetricName =~ "SNATPortUtilization" and ObservedValue >= 70)
+        or (MetricName =~ "VipAvailability" and ObservedValue < 99.9)
     | project TimeGenerated,
         Severity=case(
             MetricName in~ ("Percentage CPU", "CpuPercentage") and ObservedValue >= 90, "Sev2",
             MetricName =~ "CPU Credits Remaining" and ObservedValue <= 10, "Sev2",
             MetricName =~ "Available Memory Bytes" and ObservedValue <= 1073741824, "Sev3",
+            MetricName =~ "FirewallHealth" and ObservedValue < 100, "Sev2",
+            MetricName =~ "SNATPortUtilization" and ObservedValue >= 85, "Sev2",
+            MetricName =~ "VipAvailability" and ObservedValue < 99.9, "Sev2",
             "Sev3"
         ),
         RuleName=strcat("AzureMetrics anomaly: ", MetricName),

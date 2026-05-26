@@ -1,0 +1,28 @@
+let window = ago(1h);
+AzureMetrics
+| where TimeGenerated >= window
+| where MetricName in~ ("FirewallHealth", "SNATPortUtilization", "VipAvailability")
+| summarize
+    Average=max(Average),
+    Maximum=max(Maximum),
+    Total=max(Total)
+    by bin(TimeGenerated, 5m), ResourceId, MetricName, UnitName
+| extend ObservedValue=coalesce(Maximum, Average, Total)
+| where isnotempty(ResourceId) and isnotempty(ObservedValue)
+| where
+    (MetricName =~ "FirewallHealth" and ObservedValue < 100)
+    or (MetricName =~ "SNATPortUtilization" and ObservedValue >= 70)
+    or (MetricName =~ "VipAvailability" and ObservedValue < 99.9)
+| project
+    TimeGenerated,
+    Severity=case(
+        MetricName =~ "SNATPortUtilization" and ObservedValue >= 85, "Sev2",
+        MetricName =~ "FirewallHealth" and ObservedValue < 100, "Sev2",
+        MetricName =~ "VipAvailability" and ObservedValue < 99.9, "Sev2",
+        "Sev3"
+    ),
+    RuleName=strcat("Azure Firewall metric breach: ", MetricName),
+    ResourceId,
+    Description=strcat(MetricName, " observed value ", tostring(ObservedValue), " ", tostring(UnitName))
+| order by TimeGenerated desc
+| take 25

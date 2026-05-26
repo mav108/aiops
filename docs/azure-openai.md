@@ -71,7 +71,9 @@ If you use per-subscription workspace mapping, include `subscription_id`:
 }
 ```
 
-For incident creation instead of direct summarization, use `/integrations/log-analytics/poll-alerts`. That endpoint expects or creates rows with `TimeGenerated`, `Severity`, `RuleName`, `ResourceId`, and `Description`.
+For incident creation instead of direct summarization, use `/integrations/log-analytics/poll-alerts`.
+That endpoint only raises incidents from rows with all of these fields: `TimeGenerated`, `Severity`, `RuleName`, `ResourceId`, and `Description`.
+This keeps broad informational queries from becoming noisy incidents.
 
 For workspaces where `AzureMetrics` has useful data, start with a compact aggregation instead of sending raw rows:
 
@@ -91,3 +93,38 @@ AzureMetrics
 That same query is saved in `samples/kql/azuremetrics-operational-summary.kql`.
 
 If `query_status` is `ok` but `analysis_status` is `empty`, reduce `max_rows`, summarize the KQL first, or use a deployment with enough output token capacity. The service now reports `analysis_status=empty` rather than returning a successful response with a blank `analysis` field.
+
+To raise incidents from Azure Firewall metrics, use a signal query that applies thresholds and projects the required incident fields:
+
+```kusto
+let window = ago(1h);
+AzureMetrics
+| where TimeGenerated >= window
+| where MetricName in~ ("FirewallHealth", "SNATPortUtilization", "VipAvailability")
+| summarize
+    Average=max(Average),
+    Maximum=max(Maximum),
+    Total=max(Total)
+    by bin(TimeGenerated, 5m), ResourceId, MetricName, UnitName
+| extend ObservedValue=coalesce(Maximum, Average, Total)
+| where isnotempty(ResourceId) and isnotempty(ObservedValue)
+| where
+    (MetricName =~ "FirewallHealth" and ObservedValue < 100)
+    or (MetricName =~ "SNATPortUtilization" and ObservedValue >= 70)
+    or (MetricName =~ "VipAvailability" and ObservedValue < 99.9)
+| project
+    TimeGenerated,
+    Severity=case(
+        MetricName =~ "SNATPortUtilization" and ObservedValue >= 85, "Sev2",
+        MetricName =~ "FirewallHealth" and ObservedValue < 100, "Sev2",
+        MetricName =~ "VipAvailability" and ObservedValue < 99.9, "Sev2",
+        "Sev3"
+    ),
+    RuleName=strcat("Azure Firewall metric breach: ", MetricName),
+    ResourceId,
+    Description=strcat(MetricName, " observed value ", tostring(ObservedValue), " ", tostring(UnitName))
+| order by TimeGenerated desc
+| take 25
+```
+
+That incident query is saved in `samples/kql/azuremetrics-firewall-incident-signals.kql`.

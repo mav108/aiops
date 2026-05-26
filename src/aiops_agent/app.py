@@ -45,7 +45,7 @@ from aiops_agent.models import (
 )
 from aiops_agent.remediation import RemediationExecutor
 from aiops_agent.state import JsonStateStore
-from aiops_agent.workflow import AlertProcessor
+from aiops_agent.workflow import AlertProcessor, is_log_analytics_incident_signal
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -216,7 +216,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             raise HTTPException(status_code=400, detail=query_result.message)
         responses = []
         for row in query_result.rows:
-            if "ResourceId" in row or "RuleName" in row:
+            if is_log_analytics_incident_signal(row):
                 responses.append(processor.ingest_log_analytics_signal(row))
         return responses
 

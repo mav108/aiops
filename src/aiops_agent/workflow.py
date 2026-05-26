@@ -7,6 +7,19 @@ from aiops_agent.models import AlertIngestResponse, AuditEvent, Incident, Incide
 from aiops_agent.state import JsonStateStore
 
 
+REQUIRED_LOG_ANALYTICS_SIGNAL_FIELDS = (
+    "TimeGenerated",
+    "Severity",
+    "RuleName",
+    "ResourceId",
+    "Description",
+)
+
+
+def is_log_analytics_incident_signal(row: dict[str, Any]) -> bool:
+    return all(row.get(field) for field in REQUIRED_LOG_ANALYTICS_SIGNAL_FIELDS)
+
+
 class AlertProcessor:
     def __init__(self, store: JsonStateStore, context_collector: AzureContextCollector, analyzer: AIOpsAnalyzer):
         self.store = store
