@@ -1,4 +1,5 @@
 from datetime import timedelta
+from uuid import UUID
 from typing import Any
 
 import httpx
@@ -191,6 +192,15 @@ class AzureEnterpriseIntegrationClient:
                 workspace_id=None,
                 message=message,
             )
+        if not is_guid(workspace_id):
+            return LogAnalyticsQueryResponse(
+                status="invalid_workspace_id",
+                workspace_id=workspace_id,
+                message=(
+                    "Log Analytics queries require the workspace customerId GUID, not the "
+                    "workspace resource name. In Azure Portal this is shown as Workspace ID."
+                ),
+            )
         if not self.settings.enable_live_azure_integrations:
             return LogAnalyticsQueryResponse(
                 status="configuration_only",
@@ -368,6 +378,14 @@ Resources
 | order by type asc, name asc
 | limit {limit}
 """.strip()
+
+
+def is_guid(value: str) -> bool:
+    try:
+        UUID(value)
+        return True
+    except ValueError:
+        return False
 
 
 def parse_resource_id(resource_id: str) -> dict[str, str]:
