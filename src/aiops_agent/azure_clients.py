@@ -237,7 +237,7 @@ class AzureEnterpriseIntegrationClient:
                     message=message or "Query returned no tables.",
                 )
 
-            columns = [column.name for column in table.columns]
+            columns = [column.name if hasattr(column, "name") else str(column) for column in table.columns]
             rows = [dict(zip(columns, row, strict=False)) for row in table.rows]
             return LogAnalyticsQueryResponse(
                 status="partial" if response.status == LogsQueryStatus.PARTIAL else "ok",
@@ -362,6 +362,29 @@ union isfuzzy=true
         RuleName="High CPU from Log Analytics",
         ResourceId=_ResourceId,
         Description=strcat("CPU above threshold: ", tostring(CounterValue))
+),
+(
+    AzureMetrics
+    | where TimeGenerated >= window
+    | where MetricName in~ ("Percentage CPU", "CpuPercentage", "CPU Credits Remaining",
+        "Available Memory Bytes", "UsedCapacity", "Transactions", "Ingress", "Egress")
+    | summarize
+        Average=max(Average),
+        Maximum=max(Maximum),
+        Total=max(Total)
+        by bin(TimeGenerated, 5m), ResourceId, MetricName, UnitName
+    | extend ObservedValue=coalesce(Maximum, Average, Total)
+    | where isnotempty(ResourceId) and isnotempty(ObservedValue)
+    | project TimeGenerated,
+        Severity=case(
+            MetricName in~ ("Percentage CPU", "CpuPercentage") and ObservedValue >= 90, "Sev2",
+            MetricName =~ "CPU Credits Remaining" and ObservedValue <= 10, "Sev2",
+            MetricName =~ "Available Memory Bytes" and ObservedValue <= 1073741824, "Sev3",
+            "Sev3"
+        ),
+        RuleName=strcat("AzureMetrics anomaly: ", MetricName),
+        ResourceId,
+        Description=strcat(MetricName, " observed value ", tostring(ObservedValue), " ", tostring(UnitName))
 )
 | where isnotempty(ResourceId)
 | order by TimeGenerated desc

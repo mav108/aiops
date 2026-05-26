@@ -3,7 +3,7 @@ from aiops_agent.azure_clients import (
     build_default_alert_signal_query,
     build_resource_discovery_query,
 )
-from aiops_agent.azure_openai import AzureOpenAIService
+from aiops_agent.azure_openai import AzureOpenAIService, _extract_response_text
 from aiops_agent.config import Settings
 from aiops_agent.models import (
     AlertPollRequest,
@@ -121,6 +121,7 @@ def test_default_alert_signal_query_is_enterprise_kql():
     assert "AzureActivity" in query
     assert "Event" in query
     assert "Perf" in query
+    assert "AzureMetrics" in query
     assert "take 10" in query
 
 
@@ -213,3 +214,47 @@ def test_azure_openai_log_analysis_requires_configured_model(tmp_path):
     assert response.query_status == "ok"
     assert response.analysis_status == "not_configured"
     assert response.row_count == 1
+
+
+def test_azure_openai_extracts_responses_api_output_text():
+    response = {"output_text": "AzureMetrics shows CPU pressure."}
+
+    assert _extract_response_text(response) == "AzureMetrics shows CPU pressure."
+
+
+def test_azure_openai_extracts_nested_chat_content():
+    response = {
+        "choices": [
+            {
+                "message": {
+                    "content": [
+                        {"type": "text", "text": "Analyze vmss-prod."},
+                        {"type": "text", "text": "Recommend approval-gated scale out."},
+                    ]
+                }
+            }
+        ]
+    }
+
+    assert (
+        _extract_response_text(response)
+        == "Analyze vmss-prod. Recommend approval-gated scale out."
+    )
+
+
+def test_azure_openai_extracts_nested_responses_output():
+    response = {
+        "output": [
+            {
+                "type": "message",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": "No critical anomaly in the returned rows.",
+                    }
+                ],
+            }
+        ]
+    }
+
+    assert _extract_response_text(response) == "No critical anomaly in the returned rows."

@@ -1,0 +1,10 @@
+AzureMetrics
+| where TimeGenerated > ago(24h)
+| summarize
+    Samples=count(),
+    AvgAverage=avg(Average),
+    MaxMaximum=max(Maximum),
+    LastSeen=max(TimeGenerated)
+    by ResourceId, MetricName, UnitName
+| order by Samples desc
+| take 20

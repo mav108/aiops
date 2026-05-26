@@ -46,6 +46,7 @@ Use pull mode when alerts are represented as KQL signals, when historical replay
 - Failed AzureActivity records.
 - Windows error/warning events.
 - Perf CPU samples above 90 percent.
+- AzureMetrics records for common CPU, capacity, traffic, and availability signals.
 
 Enterprise teams should replace the default query with workspace-specific KQL for VM, VMSS, AKS, Application Insights, Sentinel, and platform logs.
 

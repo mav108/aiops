@@ -72,3 +72,22 @@ If you use per-subscription workspace mapping, include `subscription_id`:
 ```
 
 For incident creation instead of direct summarization, use `/integrations/log-analytics/poll-alerts`. That endpoint expects or creates rows with `TimeGenerated`, `Severity`, `RuleName`, `ResourceId`, and `Description`.
+
+For workspaces where `AzureMetrics` has useful data, start with a compact aggregation instead of sending raw rows:
+
+```kusto
+AzureMetrics
+| where TimeGenerated > ago(24h)
+| summarize
+    Samples=count(),
+    AvgAverage=avg(Average),
+    MaxMaximum=max(Maximum),
+    LastSeen=max(TimeGenerated)
+    by ResourceId, MetricName, UnitName
+| order by Samples desc
+| take 20
+```
+
+That same query is saved in `samples/kql/azuremetrics-operational-summary.kql`.
+
+If `query_status` is `ok` but `analysis_status` is `empty`, reduce `max_rows`, summarize the KQL first, or use a deployment with enough output token capacity. The service now reports `analysis_status=empty` rather than returning a successful response with a blank `analysis` field.

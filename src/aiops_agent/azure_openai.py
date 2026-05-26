@@ -1,8 +1,7 @@
+import json
 from typing import Any
 
 from aiops_agent.config import Settings
-import json
-
 from aiops_agent.models import (
     AzureOpenAIStatus,
     AzureOpenAITestResponse,
@@ -100,22 +99,16 @@ class AzureOpenAIService:
             )
 
         try:
-            response = self.client().chat.completions.create(
-                model=self.settings.azure_openai_deployment,
-                max_completion_tokens=80,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "You are a connectivity test for an Azure AIOps agent.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
+            output = self._complete_text(
+                system_prompt="You are a connectivity test for an Azure AIOps agent.",
+                user_prompt=prompt,
+                max_output_tokens=200,
             )
             return AzureOpenAITestResponse(
                 status="ok",
                 provider="azure_openai",
                 deployment=self.settings.azure_openai_deployment,
-                output=response.choices[0].message.content,
+                output=output or "Azure OpenAI returned an empty response.",
             )
         except Exception as exc:
             return AzureOpenAITestResponse(
@@ -163,38 +156,43 @@ class AzureOpenAIService:
             )
 
         try:
-            response = self.client().chat.completions.create(
-                model=self.settings.azure_openai_deployment,
-                max_completion_tokens=700,
-                messages=[
+            analysis = self._complete_text(
+                system_prompt=(
+                    "You are an Azure AIOps analyst. Summarize Log Analytics rows in concise "
+                    "operator language. Identify likely operational causes, call out risk, and "
+                    "recommend approval-gated next steps. Do not invent facts not present in "
+                    "the rows."
+                ),
+                user_prompt=json.dumps(
                     {
-                        "role": "system",
-                        "content": (
-                            "You are an Azure AIOps analyst. Summarize Log Analytics rows, "
-                            "identify likely operational causes, call out risk, and recommend "
-                            "approval-gated next steps. Do not invent facts not present in the rows."
-                        ),
+                        "instruction": prompt,
+                        "columns": query_result.columns,
+                        "rows": rows,
                     },
-                    {
-                        "role": "user",
-                        "content": json.dumps(
-                            {
-                                "instruction": prompt,
-                                "columns": query_result.columns,
-                                "rows": rows,
-                            },
-                            default=str,
-                        ),
-                    },
-                ],
+                    default=str,
+                ),
+                max_output_tokens=2000,
             )
+            if not analysis.strip():
+                return LogAnalyticsAnalyzeResponse(
+                    query_status=query_result.status,
+                    analysis_status="empty",
+                    workspace_id=query_result.workspace_id,
+                    row_count=len(query_result.rows),
+                    columns=query_result.columns,
+                    message=(
+                        "Azure OpenAI returned no analysis text. Try a smaller max_rows value, "
+                        "a more focused KQL query, or a model/deployment with sufficient output "
+                        "token capacity."
+                    ),
+                )
             return LogAnalyticsAnalyzeResponse(
                 query_status=query_result.status,
                 analysis_status="ok",
                 workspace_id=query_result.workspace_id,
                 row_count=len(query_result.rows),
                 columns=query_result.columns,
-                analysis=response.choices[0].message.content,
+                analysis=analysis,
             )
         except Exception as exc:
             return LogAnalyticsAnalyzeResponse(
@@ -205,3 +203,97 @@ class AzureOpenAIService:
                 columns=query_result.columns,
                 message=str(exc),
             )
+
+    def _complete_text(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_output_tokens: int,
+    ) -> str:
+        client = self.client()
+        errors: list[str] = []
+
+        if self.settings.azure_openai_api_version.lower() == "v1" and hasattr(client, "responses"):
+            try:
+                response = client.responses.create(
+                    model=self.settings.azure_openai_deployment,
+                    instructions=system_prompt,
+                    input=user_prompt,
+                    max_output_tokens=max_output_tokens,
+                )
+                output = _extract_response_text(response)
+                if output:
+                    return output
+            except Exception as exc:
+                errors.append(f"Responses API failed: {exc}")
+
+        try:
+            response = client.chat.completions.create(
+                model=self.settings.azure_openai_deployment,
+                max_completion_tokens=max_output_tokens,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+            )
+            return _extract_response_text(response)
+        except Exception as exc:
+            if errors:
+                raise RuntimeError("; ".join([*errors, f"Chat completions failed: {exc}"])) from exc
+            raise
+
+
+def _extract_response_text(response: Any) -> str:
+    output_text = _read_value(response, "output_text")
+    if isinstance(output_text, str) and output_text.strip():
+        return output_text.strip()
+
+    choices = _read_value(response, "choices")
+    if choices:
+        choice = choices[0]
+        message = _read_value(choice, "message")
+        content = _read_value(message, "content") if message is not None else None
+        text = _content_to_text(content)
+        if text.strip():
+            return text.strip()
+
+        text = _content_to_text(_read_value(choice, "text"))
+        if text.strip():
+            return text.strip()
+
+    text = _content_to_text(_read_value(response, "output"))
+    return text.strip()
+
+
+def _read_value(value: Any, key: str) -> Any:
+    if value is None:
+        return None
+    if isinstance(value, dict):
+        return value.get(key)
+    return getattr(value, key, None)
+
+
+def _content_to_text(content: Any) -> str:
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, dict):
+        text = content.get("text")
+        if isinstance(text, dict):
+            text = text.get("value")
+        if isinstance(text, str):
+            return text
+        return " ".join(
+            part
+            for key in ("output_text", "content", "message")
+            if (part := _content_to_text(content.get(key)))
+        )
+    if isinstance(content, list | tuple):
+        return " ".join(part for item in content if (part := _content_to_text(item)))
+
+    for attr in ("text", "content", "message", "output_text"):
+        text = _content_to_text(getattr(content, attr, None))
+        if text:
+            return text
+    return ""
