@@ -23,6 +23,8 @@ class Settings(BaseSettings):
 
     azure_subscription_ids: str = ""
     log_analytics_workspace_id: str | None = None
+    log_query_timespan_minutes: int = 60
+    enable_live_azure_integrations: bool = False
     automation_webhook_url: str | None = None
 
     azure_openai_endpoint: str | None = None

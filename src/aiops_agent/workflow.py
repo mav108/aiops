@@ -14,6 +14,30 @@ class AlertProcessor:
         self.analyzer = analyzer
 
     def ingest_azure_monitor_alert(self, payload: dict[str, Any]) -> AlertIngestResponse:
+        return self.ingest_normalized_alert_payload(payload, source="azure-monitor")
+
+    def ingest_log_analytics_signal(self, row: dict[str, Any]) -> AlertIngestResponse:
+        payload = {
+            "data": {
+                "essentials": {
+                    "alertId": f"log-analytics:{row.get('TimeGenerated')}:{row.get('RuleName')}",
+                    "alertRule": row.get("RuleName") or "Log Analytics signal",
+                    "severity": row.get("Severity") or "Sev3",
+                    "signalType": "Log",
+                    "monitorCondition": "Fired",
+                    "monitoringService": "Log Analytics",
+                    "alertTargetIDs": [row.get("ResourceId")] if row.get("ResourceId") else [],
+                    "firedDateTime": row.get("TimeGenerated"),
+                    "description": row.get("Description"),
+                },
+                "alertContext": {"sourceRow": row},
+            }
+        }
+        return self.ingest_normalized_alert_payload(payload, source="log-analytics")
+
+    def ingest_normalized_alert_payload(
+        self, payload: dict[str, Any], source: str
+    ) -> AlertIngestResponse:
         alert = parse_azure_monitor_alert(payload)
         incident = self._find_open_related_incident(alert.rule_name, alert.resource_ids)
 
@@ -21,6 +45,7 @@ class AlertProcessor:
             incident = Incident(
                 title=f"{alert.severity}: {alert.rule_name}",
                 severity=alert.severity,
+                source=source,
                 alert_rule=alert.rule_name,
                 resource_ids=alert.resource_ids,
                 summary="Incident created; analysis pending.",
@@ -52,7 +77,7 @@ class AlertProcessor:
             AuditEvent(
                 incident_id=incident.id,
                 event_type="incident.ingested",
-                message=f"Ingested Azure Monitor alert {alert.id}.",
+                message=f"Ingested {source} alert {alert.id}.",
                 metadata={"alert_rule": alert.rule_name, "action_ids": action_ids},
             )
         )
@@ -72,4 +97,3 @@ class AlertProcessor:
             if resource_set.intersection(incident.resource_ids):
                 return incident
         return None
-

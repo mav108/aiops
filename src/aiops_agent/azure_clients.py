@@ -1,9 +1,20 @@
+from datetime import timedelta
 from typing import Any
 
 import httpx
 
 from aiops_agent.config import Settings
-from aiops_agent.models import ActionType, NormalizedAlert, RemediationAction
+from aiops_agent.models import (
+    ActionType,
+    AlertPollRequest,
+    IntegrationStatus,
+    LogAnalyticsQueryRequest,
+    LogAnalyticsQueryResponse,
+    NormalizedAlert,
+    RemediationAction,
+    ResourceDiscoveryRequest,
+    ResourceDiscoveryResponse,
+)
 
 
 class AzureContextCollector:
@@ -57,7 +68,11 @@ class AzureContextCollector:
         return {
             "status": "configured",
             "workspace_id": self.settings.log_analytics_workspace_id,
-            "note": "Live Log Analytics query execution is isolated behind this adapter.",
+            "queries": build_resource_context_queries(alert),
+            "note": (
+                "Use /integrations/log-analytics/query or /integrations/log-analytics/poll-alerts "
+                "to execute KQL against the configured workspace."
+            ),
         }
 
     def _advisor_recommendations(self, alert: NormalizedAlert) -> dict[str, Any]:
@@ -130,6 +145,218 @@ class AzureRemediationClient:
         return f"Live VMSS resize adapter reached for {target}; desired capacity {desired_capacity}."
 
 
+class AzureEnterpriseIntegrationClient:
+    """Read-side Azure integrations for existing enterprise infrastructure."""
+
+    def __init__(self, settings: Settings):
+        self.settings = settings
+
+    def status(self) -> IntegrationStatus:
+        return IntegrationStatus(
+            mode="live" if self.settings.enable_live_azure_integrations else "configuration_only",
+            live_azure_integrations_enabled=self.settings.enable_live_azure_integrations,
+            subscriptions_configured=len(self.settings.subscription_id_list),
+            log_analytics_configured=bool(self.settings.log_analytics_workspace_id),
+            azure_openai_configured=self.settings.azure_openai_enabled,
+            supported_ingestion_modes=[
+                "Azure Monitor Action Group webhook",
+                "Log Analytics KQL polling",
+                "Resource Graph inventory discovery",
+                "Sentinel/Defender alert extension",
+            ],
+            supported_resource_types=[
+                "Microsoft.Compute/virtualMachines",
+                "Microsoft.Compute/virtualMachineScaleSets",
+                "Microsoft.ContainerService/managedClusters",
+            ],
+        )
+
+    def query_log_analytics(self, request: LogAnalyticsQueryRequest) -> LogAnalyticsQueryResponse:
+        workspace_id = request.workspace_id or self.settings.log_analytics_workspace_id
+        if not workspace_id:
+            return LogAnalyticsQueryResponse(
+                status="not_configured",
+                workspace_id=None,
+                message="Set AIOPS_LOG_ANALYTICS_WORKSPACE_ID or pass workspace_id.",
+            )
+        if not self.settings.enable_live_azure_integrations:
+            return LogAnalyticsQueryResponse(
+                status="configuration_only",
+                workspace_id=workspace_id,
+                columns=["query"],
+                rows=[{"query": request.query}],
+                message="Set AIOPS_ENABLE_LIVE_AZURE_INTEGRATIONS=true to execute live KQL.",
+            )
+
+        try:
+            from azure.identity import DefaultAzureCredential
+            from azure.monitor.query import LogsQueryClient, LogsQueryStatus
+
+            client = LogsQueryClient(DefaultAzureCredential())
+            response = client.query_workspace(
+                workspace_id=workspace_id,
+                query=request.query,
+                timespan=timedelta(
+                    minutes=request.timespan_minutes or self.settings.log_query_timespan_minutes
+                ),
+            )
+
+            if response.status == LogsQueryStatus.PARTIAL:
+                table = response.partial_data[0] if response.partial_data else None
+                message = str(response.partial_error)
+            else:
+                table = response.tables[0] if response.tables else None
+                message = None
+
+            if not table:
+                return LogAnalyticsQueryResponse(
+                    status="ok",
+                    workspace_id=workspace_id,
+                    message=message or "Query returned no tables.",
+                )
+
+            columns = [column.name for column in table.columns]
+            rows = [dict(zip(columns, row, strict=False)) for row in table.rows]
+            return LogAnalyticsQueryResponse(
+                status="partial" if response.status == LogsQueryStatus.PARTIAL else "ok",
+                workspace_id=workspace_id,
+                columns=columns,
+                rows=rows,
+                message=message,
+            )
+        except Exception as exc:
+            return LogAnalyticsQueryResponse(
+                status="error",
+                workspace_id=workspace_id,
+                message=f"Azure Monitor query integration failed: {exc}",
+            )
+
+    def poll_workspace_alert_signals(self, request: AlertPollRequest) -> LogAnalyticsQueryResponse:
+        query = request.query or build_default_alert_signal_query(request.max_alerts)
+        return self.query_log_analytics(
+            LogAnalyticsQueryRequest(
+                query=query,
+                workspace_id=request.workspace_id,
+                timespan_minutes=request.timespan_minutes,
+            )
+        )
+
+    def discover_resources(self, request: ResourceDiscoveryRequest) -> ResourceDiscoveryResponse:
+        subscriptions = request.subscriptions or self.settings.subscription_id_list
+        query = build_resource_discovery_query(request.resource_types, request.limit)
+        if not subscriptions:
+            return ResourceDiscoveryResponse(
+                status="not_configured",
+                subscriptions=[],
+                query=query,
+                message="Set AIOPS_AZURE_SUBSCRIPTION_IDS or pass subscriptions.",
+            )
+        if not self.settings.enable_live_azure_integrations:
+            return ResourceDiscoveryResponse(
+                status="configuration_only",
+                subscriptions=subscriptions,
+                query=query,
+                message="Set AIOPS_ENABLE_LIVE_AZURE_INTEGRATIONS=true to query Resource Graph.",
+            )
+
+        try:
+            from azure.identity import DefaultAzureCredential
+            from azure.mgmt.resourcegraph import ResourceGraphClient
+            from azure.mgmt.resourcegraph.models import QueryRequest
+
+            client = ResourceGraphClient(DefaultAzureCredential())
+            response = client.resources(QueryRequest(subscriptions=subscriptions, query=query))
+            return ResourceDiscoveryResponse(
+                status="ok",
+                subscriptions=subscriptions,
+                query=query,
+                resources=list(response.data or []),
+            )
+        except Exception as exc:
+            return ResourceDiscoveryResponse(
+                status="error",
+                subscriptions=subscriptions,
+                query=query,
+                message=f"Resource Graph integration failed: {exc}",
+            )
+
+
+def build_resource_context_queries(alert: NormalizedAlert) -> list[str]:
+    quoted_resources = ",".join(f"'{resource_id}'" for resource_id in alert.resource_ids)
+    resource_filter = f"| where _ResourceId in~ ({quoted_resources})" if alert.resource_ids else ""
+    return [
+        (
+            "Perf "
+            f"{resource_filter} "
+            "| where TimeGenerated > ago(1h) "
+            "| summarize avg(CounterValue), max(CounterValue) "
+            "by Computer, CounterName, bin(TimeGenerated, 5m)"
+        ),
+        (
+            "AzureActivity "
+            f"{resource_filter} "
+            "| where TimeGenerated > ago(1h) "
+            "| project TimeGenerated, OperationNameValue, ActivityStatusValue, Caller, _ResourceId"
+        ),
+        (
+            "InsightsMetrics "
+            f"{resource_filter} "
+            "| where TimeGenerated > ago(1h) "
+            "| summarize avg(Val), max(Val) by Namespace, Name, bin(TimeGenerated, 5m)"
+        ),
+    ]
+
+
+def build_default_alert_signal_query(max_alerts: int) -> str:
+    return f"""
+let window = ago(1h);
+union isfuzzy=true
+(
+    AzureActivity
+    | where TimeGenerated >= window
+    | where ActivityStatusValue in~ ("Failed", "Failure")
+    | project TimeGenerated, Severity="Sev3",
+        RuleName=strcat("AzureActivity failure: ", OperationNameValue),
+        ResourceId=_ResourceId,
+        Description=tostring(Properties)
+),
+(
+    Event
+    | where TimeGenerated >= window
+    | where EventLevelName in ("Error", "Warning")
+    | project TimeGenerated,
+        Severity=iif(EventLevelName == "Error", "Sev2", "Sev3"),
+        RuleName=strcat("Windows event: ", Source),
+        ResourceId=_ResourceId,
+        Description=RenderedDescription
+),
+(
+    Perf
+    | where TimeGenerated >= window
+    | where CounterName == "% Processor Time" and CounterValue > 90
+    | summarize CounterValue=max(CounterValue) by bin(TimeGenerated, 5m), _ResourceId
+    | project TimeGenerated, Severity="Sev2",
+        RuleName="High CPU from Log Analytics",
+        ResourceId=_ResourceId,
+        Description=strcat("CPU above threshold: ", tostring(CounterValue))
+)
+| where isnotempty(ResourceId)
+| order by TimeGenerated desc
+| take {max_alerts}
+""".strip()
+
+
+def build_resource_discovery_query(resource_types: list[str], limit: int) -> str:
+    type_list = ",".join(f"'{resource_type.lower()}'" for resource_type in resource_types)
+    return f"""
+Resources
+| where type in~ ({type_list})
+| project id, name, type, location, resourceGroup, subscriptionId, tags, sku, properties
+| order by type asc, name asc
+| limit {limit}
+""".strip()
+
+
 def parse_resource_id(resource_id: str) -> dict[str, str]:
     parts = [part for part in resource_id.strip("/").split("/") if part]
     parsed: dict[str, str] = {}
@@ -144,4 +371,3 @@ def parse_resource_id(resource_id: str) -> dict[str, str]:
             parsed["type_path"] = "/".join(provider_parts[0::2])
             parsed["name"] = provider_parts[-1]
     return parsed
-

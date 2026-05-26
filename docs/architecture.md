@@ -26,6 +26,7 @@ Approval API/UI -> Remediation Executor -> Azure Compute / Automation / Monitor
 
 - FastAPI control plane exposes alert intake, incident review, approval, rejection, action lookup, and a minimal operator UI.
 - Alert processor normalizes Azure Monitor common alert schema payloads and correlates repeated alerts into existing open incidents when the rule and target resource match.
+- Enterprise integrations support Azure Monitor webhook push, Log Analytics KQL pull, and Resource Graph discovery for existing VM, VMSS, and AKS resources.
 - Context collector creates a single incident context bundle from Azure resource metadata, Log Analytics query plans, Advisor categories, Sentinel/Defender extension points, and monitoring recommendations.
 - Analyzer uses Azure OpenAI when configured and falls back to deterministic VM/VMSS heuristics when local or offline.
 - Remediation executor enforces approval, allowlists, destructive-action blocking, execution mode, and audit logging.
@@ -76,4 +77,3 @@ The MVP can run with public Container Apps ingress for Azure Monitor webhooks. E
 5. Replace JSON state with Cosmos DB and add retention policies.
 6. Integrate Teams/ServiceNow/Jira/PagerDuty for approval and post-incident workflows.
 7. Add SLO/error-budget, deployment-change, CMDB ownership, and FinOps signals to context collection.
-

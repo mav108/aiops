@@ -6,6 +6,9 @@ Azure-native AIOps MVP for VMs and VM Scale Sets. The agent ingests Azure Monito
 
 - FastAPI control plane with approval-gated remediation.
 - Deterministic local analyzer with optional Azure OpenAI recommendations.
+- Azure Monitor Action Group webhook ingestion.
+- Log Analytics KQL query and alert-signal polling endpoints.
+- Resource Graph discovery for existing VM, VMSS, and AKS resources.
 - Azure adapter boundaries for Monitor/Log Analytics, Resource Graph, Advisor, Compute, Automation, and Sentinel enrichment.
 - Bicep infrastructure scaffold for Azure Container Apps, managed identity, Log Analytics, Application Insights, Service Bus, Storage, and Key Vault.
 - Architecture and remediation catalog docs.
@@ -43,6 +46,35 @@ Invoke-RestMethod `
   -Uri http://127.0.0.1:8000/incidents/<incident-id>/approve
 ```
 
+## Enterprise Azure Integration
+
+For real Azure estates, connect existing alerts in two ways:
+
+1. Configure an Azure Monitor Action Group webhook that posts common alert schema payloads to `/alerts/azure-monitor`.
+2. Configure Log Analytics pull mode with `AIOPS_LOG_ANALYTICS_WORKSPACE_ID` and call `/integrations/log-analytics/poll-alerts` on a schedule.
+
+Discover existing infrastructure across subscriptions:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"limit":50}' `
+  -Uri http://127.0.0.1:8000/integrations/resource-graph/discover
+```
+
+Run KQL against a workspace:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"query":"AzureActivity | take 10"}' `
+  -Uri http://127.0.0.1:8000/integrations/log-analytics/query
+```
+
+Set `AIOPS_ENABLE_LIVE_AZURE_INTEGRATIONS=true` only after authenticating with Azure CLI locally or assigning managed identity/RBAC in Azure.
+
 ## Safety Model
 
 The default execution mode is `mock`, so remediation calls are simulated. Set `AIOPS_EXECUTION_MODE=live` only after configuring managed identity/RBAC and reviewing `docs/remediation-catalog.md`.
@@ -65,4 +97,3 @@ az deployment group create `
   --template-file infra/main.bicep `
   --parameters containerImage=<registry>/aiops-agent:latest
 ```
-

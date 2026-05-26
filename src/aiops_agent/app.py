@@ -4,15 +4,25 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
 from aiops_agent.analyzer import build_analyzer
-from aiops_agent.azure_clients import AzureContextCollector, AzureRemediationClient
+from aiops_agent.azure_clients import (
+    AzureContextCollector,
+    AzureEnterpriseIntegrationClient,
+    AzureRemediationClient,
+)
 from aiops_agent.config import Settings, get_settings
 from aiops_agent.models import (
+    AlertPollRequest,
     AlertIngestResponse,
     ApproveRequest,
     AuditEvent,
     Incident,
+    IntegrationStatus,
+    LogAnalyticsQueryRequest,
+    LogAnalyticsQueryResponse,
     RejectRequest,
     RemediationAction,
+    ResourceDiscoveryRequest,
+    ResourceDiscoveryResponse,
 )
 from aiops_agent.remediation import RemediationExecutor
 from aiops_agent.state import JsonStateStore
@@ -26,12 +36,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     analyzer = build_analyzer(settings)
     processor = AlertProcessor(store, context_collector, analyzer)
     executor = RemediationExecutor(settings, store, AzureRemediationClient(settings))
+    integrations = AzureEnterpriseIntegrationClient(settings)
 
     app = FastAPI(title=settings.app_name, version="0.1.0")
     app.state.settings = settings
     app.state.store = store
     app.state.processor = processor
     app.state.executor = executor
+    app.state.integrations = integrations
 
     @app.get("/")
     def root() -> dict[str, Any]:
@@ -50,6 +62,29 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.post("/alerts/azure-monitor", response_model=AlertIngestResponse)
     def ingest_azure_monitor_alert(payload: dict[str, Any]) -> AlertIngestResponse:
         return processor.ingest_azure_monitor_alert(payload)
+
+    @app.get("/integrations/status", response_model=IntegrationStatus)
+    def integration_status() -> IntegrationStatus:
+        return integrations.status()
+
+    @app.post("/integrations/log-analytics/query", response_model=LogAnalyticsQueryResponse)
+    def query_log_analytics(request: LogAnalyticsQueryRequest) -> LogAnalyticsQueryResponse:
+        return integrations.query_log_analytics(request)
+
+    @app.post("/integrations/log-analytics/poll-alerts", response_model=list[AlertIngestResponse])
+    def poll_log_analytics_alerts(request: AlertPollRequest) -> list[AlertIngestResponse]:
+        query_result = integrations.poll_workspace_alert_signals(request)
+        if query_result.status in {"error", "not_configured"}:
+            raise HTTPException(status_code=400, detail=query_result.message)
+        responses = []
+        for row in query_result.rows:
+            if "ResourceId" in row or "RuleName" in row:
+                responses.append(processor.ingest_log_analytics_signal(row))
+        return responses
+
+    @app.post("/integrations/resource-graph/discover", response_model=ResourceDiscoveryResponse)
+    def discover_resources(request: ResourceDiscoveryRequest) -> ResourceDiscoveryResponse:
+        return integrations.discover_resources(request)
 
     @app.get("/incidents", response_model=list[Incident])
     def list_incidents() -> list[Incident]:
@@ -175,4 +210,3 @@ def _approval_ui() -> str:
 </body>
 </html>
 """
-

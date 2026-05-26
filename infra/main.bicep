@@ -19,6 +19,9 @@ param monitoredSubscriptionIds string = ''
 @description('Optional Log Analytics workspace ID used for incident context queries.')
 param logAnalyticsWorkspaceId string = ''
 
+@description('Whether the agent should execute live Azure read integrations. Keep false during first deployment.')
+param enableLiveAzureIntegrations bool = false
+
 var prefix = 'aiops-${environmentName}'
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
@@ -150,6 +153,14 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
               value: empty(logAnalyticsWorkspaceId) ? workspace.properties.customerId : logAnalyticsWorkspaceId
             }
             {
+              name: 'AIOPS_LOG_QUERY_TIMESPAN_MINUTES'
+              value: '60'
+            }
+            {
+              name: 'AIOPS_ENABLE_LIVE_AZURE_INTEGRATIONS'
+              value: string(enableLiveAzureIntegrations)
+            }
+            {
               name: 'AIOPS_AZURE_OPENAI_ENDPOINT'
               value: azureOpenAIEndpoint
             }
@@ -191,4 +202,3 @@ output managedIdentityPrincipalId string = identity.properties.principalId
 output logAnalyticsWorkspaceResourceId string = workspace.id
 output serviceBusQueueName string = alertQueue.name
 output keyVaultName string = keyVault.name
-

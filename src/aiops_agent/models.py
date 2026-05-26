@@ -155,3 +155,53 @@ class ActionExecutionResult(BaseModel):
     status: ActionStatus
     output: str
 
+
+class IntegrationStatus(BaseModel):
+    mode: str
+    live_azure_integrations_enabled: bool
+    subscriptions_configured: int
+    log_analytics_configured: bool
+    azure_openai_configured: bool
+    supported_ingestion_modes: list[str]
+    supported_resource_types: list[str]
+
+
+class LogAnalyticsQueryRequest(BaseModel):
+    query: str
+    workspace_id: str | None = None
+    timespan_minutes: int | None = None
+
+
+class LogAnalyticsQueryResponse(BaseModel):
+    status: str
+    workspace_id: str | None
+    columns: list[str] = Field(default_factory=list)
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+    message: str | None = None
+
+
+class ResourceDiscoveryRequest(BaseModel):
+    subscriptions: list[str] | None = None
+    resource_types: list[str] = Field(
+        default_factory=lambda: [
+            "microsoft.compute/virtualmachines",
+            "microsoft.compute/virtualmachinescalesets",
+            "microsoft.containerservice/managedclusters",
+        ]
+    )
+    limit: int = 100
+
+
+class ResourceDiscoveryResponse(BaseModel):
+    status: str
+    subscriptions: list[str]
+    query: str
+    resources: list[dict[str, Any]] = Field(default_factory=list)
+    message: str | None = None
+
+
+class AlertPollRequest(BaseModel):
+    query: str | None = None
+    workspace_id: str | None = None
+    timespan_minutes: int | None = None
+    max_alerts: int = 50
