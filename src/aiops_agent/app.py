@@ -33,6 +33,8 @@ from aiops_agent.models import (
     AzureOpenAITestResponse,
     Incident,
     IntegrationStatus,
+    LogAnalyticsAnalyzeRequest,
+    LogAnalyticsAnalyzeResponse,
     LogAnalyticsQueryRequest,
     LogAnalyticsQueryResponse,
     RejectRequest,
@@ -89,6 +91,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "azure_monitor_webhook": "POST /alerts/azure-monitor",
                 "integration_status": "GET /integrations/status",
                 "log_analytics_query": "POST /integrations/log-analytics/query",
+                "log_analytics_analyze": "POST /integrations/log-analytics/analyze",
                 "log_analytics_poll_alerts": "POST /integrations/log-analytics/poll-alerts",
                 "resource_graph_discovery": "POST /integrations/resource-graph/discover",
                 "azure_openai_status": "GET /integrations/azure-openai/status",
@@ -190,6 +193,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         _user: UserProfile = Depends(current_user),
     ) -> LogAnalyticsQueryResponse:
         return integrations.query_log_analytics(request)
+
+    @app.post("/integrations/log-analytics/analyze", response_model=LogAnalyticsAnalyzeResponse)
+    def analyze_log_analytics(
+        request: LogAnalyticsAnalyzeRequest,
+        _user: UserProfile = Depends(current_user),
+    ) -> LogAnalyticsAnalyzeResponse:
+        query_result = integrations.query_log_analytics(request)
+        return azure_openai.analyze_log_rows(
+            query_result=query_result,
+            prompt=request.prompt,
+            max_rows=request.max_rows,
+        )
 
     @app.post("/integrations/log-analytics/poll-alerts", response_model=list[AlertIngestResponse])
     def poll_log_analytics_alerts(

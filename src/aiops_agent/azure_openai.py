@@ -1,7 +1,14 @@
 from typing import Any
 
 from aiops_agent.config import Settings
-from aiops_agent.models import AzureOpenAIStatus, AzureOpenAITestResponse
+import json
+
+from aiops_agent.models import (
+    AzureOpenAIStatus,
+    AzureOpenAITestResponse,
+    LogAnalyticsAnalyzeResponse,
+    LogAnalyticsQueryResponse,
+)
 
 
 class AzureOpenAIService:
@@ -92,5 +99,87 @@ class AzureOpenAIService:
                 status="error",
                 provider="azure_openai",
                 deployment=self.settings.azure_openai_deployment,
+                message=str(exc),
+            )
+
+    def analyze_log_rows(
+        self,
+        query_result: LogAnalyticsQueryResponse,
+        prompt: str,
+        max_rows: int,
+    ) -> LogAnalyticsAnalyzeResponse:
+        rows = query_result.rows[:max_rows]
+        if query_result.status not in {"ok", "partial"}:
+            return LogAnalyticsAnalyzeResponse(
+                query_status=query_result.status,
+                analysis_status="skipped",
+                workspace_id=query_result.workspace_id,
+                row_count=len(query_result.rows),
+                columns=query_result.columns,
+                message=query_result.message or "Log Analytics query did not return analyzable rows.",
+            )
+        if not rows:
+            return LogAnalyticsAnalyzeResponse(
+                query_status=query_result.status,
+                analysis_status="no_rows",
+                workspace_id=query_result.workspace_id,
+                row_count=0,
+                columns=query_result.columns,
+                message="Log Analytics query returned no rows.",
+            )
+
+        status = self.status()
+        if not status.configured:
+            return LogAnalyticsAnalyzeResponse(
+                query_status=query_result.status,
+                analysis_status="not_configured",
+                workspace_id=query_result.workspace_id,
+                row_count=len(query_result.rows),
+                columns=query_result.columns,
+                message=status.message,
+            )
+
+        try:
+            response = self.client().chat.completions.create(
+                model=self.settings.azure_openai_deployment,
+                temperature=0.1,
+                max_tokens=700,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": (
+                            "You are an Azure AIOps analyst. Summarize Log Analytics rows, "
+                            "identify likely operational causes, call out risk, and recommend "
+                            "approval-gated next steps. Do not invent facts not present in the rows."
+                        ),
+                    },
+                    {
+                        "role": "user",
+                        "content": json.dumps(
+                            {
+                                "instruction": prompt,
+                                "columns": query_result.columns,
+                                "rows": rows,
+                            },
+                            default=str,
+                        ),
+                    },
+                ],
+            )
+            return LogAnalyticsAnalyzeResponse(
+                query_status=query_result.status,
+                analysis_status="ok",
+                workspace_id=query_result.workspace_id,
+                row_count=len(query_result.rows),
+                columns=query_result.columns,
+                analysis=response.choices[0].message.content,
+            )
+        except Exception as exc:
+            return LogAnalyticsAnalyzeResponse(
+                query_status=query_result.status,
+                analysis_status="error",
+                workspace_id=query_result.workspace_id,
+                row_count=len(query_result.rows),
+                columns=query_result.columns,
                 message=str(exc),
             )

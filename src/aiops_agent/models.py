@@ -182,6 +182,24 @@ class LogAnalyticsQueryResponse(BaseModel):
     message: str | None = None
 
 
+class LogAnalyticsAnalyzeRequest(LogAnalyticsQueryRequest):
+    prompt: str = (
+        "Analyze these Azure Log Analytics rows for operational risk, likely causes, "
+        "and recommended next steps."
+    )
+    max_rows: int = 50
+
+
+class LogAnalyticsAnalyzeResponse(BaseModel):
+    query_status: str
+    analysis_status: str
+    workspace_id: str | None
+    row_count: int
+    columns: list[str] = Field(default_factory=list)
+    analysis: str | None = None
+    message: str | None = None
+
+
 class ResourceDiscoveryRequest(BaseModel):
     subscriptions: list[str] | None = None
     resource_types: list[str] = Field(

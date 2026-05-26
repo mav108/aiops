@@ -92,6 +92,16 @@ Invoke-RestMethod `
   -Uri http://127.0.0.1:8000/integrations/log-analytics/query
 ```
 
+Analyze KQL rows with Azure OpenAI:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"query":"AzureActivity | where TimeGenerated > ago(1h) | take 20","max_rows":20}' `
+  -Uri http://127.0.0.1:8000/integrations/log-analytics/analyze
+```
+
 Poll a subscription workspace for alert-like signals:
 
 ```powershell

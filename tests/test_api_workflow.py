@@ -23,6 +23,7 @@ def test_api_status_documents_python_runtime_and_enterprise_endpoints(client):
     assert body["auth"]["enabled"] is False
     assert body["docs"] == "/docs"
     assert body["endpoints"]["log_analytics_query"] == "POST /integrations/log-analytics/query"
+    assert body["endpoints"]["log_analytics_analyze"] == "POST /integrations/log-analytics/analyze"
     assert body["endpoints"]["azure_openai_status"] == "GET /integrations/azure-openai/status"
     assert body["endpoints"]["resource_graph_discovery"] == (
         "POST /integrations/resource-graph/discover"

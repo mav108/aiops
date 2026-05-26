@@ -5,7 +5,12 @@ from aiops_agent.azure_clients import (
 )
 from aiops_agent.azure_openai import AzureOpenAIService
 from aiops_agent.config import Settings
-from aiops_agent.models import AlertPollRequest, LogAnalyticsQueryRequest, ResourceDiscoveryRequest
+from aiops_agent.models import (
+    AlertPollRequest,
+    LogAnalyticsQueryRequest,
+    LogAnalyticsQueryResponse,
+    ResourceDiscoveryRequest,
+)
 
 
 def test_integration_status_reports_enterprise_modes(tmp_path):
@@ -166,3 +171,31 @@ def test_azure_openai_smoke_test_returns_not_configured_without_secrets(tmp_path
     response = service.test_chat("hello")
 
     assert response.status == "not_configured"
+
+
+def test_azure_openai_log_analysis_requires_configured_model(tmp_path):
+    settings = Settings(
+        state_file=tmp_path / "state.json",
+        azure_openai_endpoint=None,
+        azure_openai_deployment=None,
+        azure_openai_api_key=None,
+    )
+    service = AzureOpenAIService(settings)
+    query_result = LogAnalyticsQueryResponse(
+        status="ok",
+        workspace_id="workspace-a",
+        columns=["TimeGenerated", "ResourceId", "Description"],
+        rows=[
+            {
+                "TimeGenerated": "2026-05-27T10:00:00Z",
+                "ResourceId": "/subscriptions/sub/resourceGroups/rg/providers/Microsoft.Compute/virtualMachines/vm1",
+                "Description": "CPU exceeded threshold",
+            }
+        ],
+    )
+
+    response = service.analyze_log_rows(query_result, "Analyze", max_rows=10)
+
+    assert response.query_status == "ok"
+    assert response.analysis_status == "not_configured"
+    assert response.row_count == 1
