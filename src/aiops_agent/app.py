@@ -260,7 +260,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def ui(request: Request):
         if settings.auth_enabled and not session_user(request):
             return RedirectResponse(url="/auth/login")
-        return _approval_ui()
+        return _approval_ui(session_user(request), auth_enabled=settings.auth_enabled)
 
     return app
 
@@ -481,7 +481,9 @@ def _initials(value: str) -> str:
     return html.escape(letters or "OP", quote=True)
 
 
-def _approval_ui() -> str:
+def _approval_ui(user: UserProfile | None = None, auth_enabled: bool = False) -> str:
+    display_name = _escape(user.name or user.username) if user else "Local operator"
+    auth_link = '<a href="/auth/logout">Sign Out</a>' if auth_enabled else ""
     return """
 <!doctype html>
 <html lang="en">
@@ -492,7 +494,11 @@ def _approval_ui() -> str:
   <style>
     :root { font-family: Segoe UI, system-ui, sans-serif; color: #172033; background: #f6f8fb; }
     body { margin: 0; }
-    header { background: #12395f; color: white; padding: 18px 24px; }
+    header { background: #12395f; color: white; padding: 18px 24px; display: flex; justify-content: space-between; align-items: center; gap: 18px; flex-wrap: wrap; }
+    header h1 { margin: 0; font-size: 24px; }
+    nav { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+    nav a { color: white; text-decoration: none; font-weight: 600; }
+    .user { color: #d7e8f7; font-size: 14px; }
     main { max-width: 1160px; margin: 0 auto; padding: 24px; }
     table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #d9e1ec; }
     th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e6edf5; vertical-align: top; }
@@ -505,7 +511,17 @@ def _approval_ui() -> str:
   </style>
 </head>
 <body>
-  <header><h1>Azure AIOps Agent</h1></header>
+  <header>
+    <h1>Azure AIOps Agent</h1>
+    <nav aria-label="Primary">
+      <span class="user">__DISPLAY_NAME__</span>
+      <a href="/">Status</a>
+      <a href="/me">Profile</a>
+      <a href="/docs">API Docs</a>
+      <a href="/api/status">JSON</a>
+      __AUTH_LINK__
+    </nav>
+  </header>
   <main>
     <table>
       <thead><tr><th>Incident</th><th>Severity</th><th>Status</th><th>Summary</th><th>Actions</th></tr></thead>
@@ -553,4 +569,4 @@ def _approval_ui() -> str:
   </script>
 </body>
 </html>
-"""
+""".replace("__DISPLAY_NAME__", display_name).replace("__AUTH_LINK__", auth_link)
