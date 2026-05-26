@@ -1,0 +1,6 @@
+{
+  "workspace_id": "03d8f1ef-51fa-4315-b636-ccb84e2a19ef",
+  "timespan_minutes": 60,
+  "max_alerts": 1,
+  "query": "print\n    TimeGenerated=now(),\n    Severity=\"Sev2\",\n    RuleName=\"Azure Firewall metric breach: SNATPortUtilization\",\n    ResourceId=\"/subscriptions/6a9015ec-d3e6-4525-b9a2-7260643ee713/resourceGroups/RGPGWCLHUB1ALLOLH1NETWORK/providers/Microsoft.Network/azureFirewalls/AFWGWCLHUB1ALLOLMAIN\",\n    Description=\"SNATPortUtilization observed value 88 Percent\""
+}

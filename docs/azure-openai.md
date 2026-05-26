@@ -128,3 +128,6 @@ AzureMetrics
 ```
 
 That incident query is saved in `samples/kql/azuremetrics-firewall-incident-signals.kql`.
+
+For a synthetic pipeline test, use `samples/kql/fake-firewall-incident.kql` or the ready-to-paste request body in `samples/requests/log-analytics-poll-fake-firewall-incident.json`.
+The fake query uses `print` because Azure Monitor may reject `now()` inside a `datatable` literal block.

@@ -1,0 +1,7 @@
+{
+  "workspace_id": "03d8f1ef-51fa-4315-b636-ccb84e2a19ef",
+  "timespan_minutes": 1440,
+  "max_rows": 20,
+  "prompt": "Analyze these AzureMetrics rows for operational risk, likely causes, unusual patterns, and recommended approval-gated next actions.",
+  "query": "AzureMetrics\n| where TimeGenerated > ago(24h)\n| summarize\n    Samples=count(),\n    AvgAverage=avg(Average),\n    MaxMaximum=max(Maximum),\n    LastSeen=max(TimeGenerated)\n    by ResourceId, MetricName, UnitName\n| order by Samples desc\n| take 20"
+}

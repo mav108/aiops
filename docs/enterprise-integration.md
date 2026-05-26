@@ -80,6 +80,8 @@ To raise incidents from a custom KQL query, the result must project:
 
 Use `samples/kql/azuremetrics-firewall-incident-signals.kql` as a starting point for Azure Firewall metric breaches. The analysis query in `samples/kql/azuremetrics-operational-summary.kql` is intentionally informational and should not be used directly for incident creation.
 
+For a synthetic incident test, use `samples/kql/fake-firewall-incident.kql` or paste `samples/requests/log-analytics-poll-fake-firewall-incident.json` into `/integrations/log-analytics/poll-alerts`.
+
 ## Resource Graph Discovery
 
 The discovery endpoint starts with:

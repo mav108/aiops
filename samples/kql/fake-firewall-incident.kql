@@ -1,0 +1,6 @@
+print
+    TimeGenerated=now(),
+    Severity="Sev2",
+    RuleName="Azure Firewall metric breach: SNATPortUtilization",
+    ResourceId="/subscriptions/6a9015ec-d3e6-4525-b9a2-7260643ee713/resourceGroups/RGPGWCLHUB1ALLOLH1NETWORK/providers/Microsoft.Network/azureFirewalls/AFWGWCLHUB1ALLOLMAIN",
+    Description="SNATPortUtilization observed value 88 Percent"

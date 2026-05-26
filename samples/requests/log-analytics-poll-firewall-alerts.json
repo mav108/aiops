@@ -1,0 +1,6 @@
+{
+  "workspace_id": "03d8f1ef-51fa-4315-b636-ccb84e2a19ef",
+  "timespan_minutes": 60,
+  "max_alerts": 25,
+  "query": "let window = ago(1h);\nAzureMetrics\n| where TimeGenerated >= window\n| where MetricName in~ (\"FirewallHealth\", \"SNATPortUtilization\", \"VipAvailability\")\n| summarize\n    Average=max(Average),\n    Maximum=max(Maximum),\n    Total=max(Total)\n    by bin(TimeGenerated, 5m), ResourceId, MetricName, UnitName\n| extend ObservedValue=coalesce(Maximum, Average, Total)\n| where isnotempty(ResourceId) and isnotempty(ObservedValue)\n| where\n    (MetricName =~ \"FirewallHealth\" and ObservedValue < 100)\n    or (MetricName =~ \"SNATPortUtilization\" and ObservedValue >= 70)\n    or (MetricName =~ \"VipAvailability\" and ObservedValue < 99.9)\n| project\n    TimeGenerated,\n    Severity=case(\n        MetricName =~ \"SNATPortUtilization\" and ObservedValue >= 85, \"Sev2\",\n        MetricName =~ \"FirewallHealth\" and ObservedValue < 100, \"Sev2\",\n        MetricName =~ \"VipAvailability\" and ObservedValue < 99.9, \"Sev2\",\n        \"Sev3\"\n    ),\n    RuleName=strcat(\"Azure Firewall metric breach: \", MetricName),\n    ResourceId,\n    Description=strcat(MetricName, \" observed value \", tostring(ObservedValue), \" \", tostring(UnitName))\n| order by TimeGenerated desc\n| take 25"
+}
