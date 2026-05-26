@@ -25,7 +25,29 @@ param logAnalyticsWorkspaceMap string = ''
 @description('Whether the agent should execute live Azure read integrations. Keep false during first deployment.')
 param enableLiveAzureIntegrations bool = false
 
+@description('Enable Microsoft Entra ID interactive login for operator routes.')
+param authEnabled bool = false
+
+@description('Microsoft Entra tenant ID, or organizations for multi-tenant work/school login.')
+param authTenantId string = 'organizations'
+
+@description('Microsoft Entra app registration client ID.')
+param authClientId string = ''
+
+@secure()
+@description('Microsoft Entra app registration client secret.')
+param authClientSecret string = ''
+
+@secure()
+@description('Secret used to sign application session cookies.')
+param authSessionSecret string = ''
+
+@description('Post logout redirect URI registered or allowed for the app.')
+param authPostLogoutRedirectUri string = ''
+
 var prefix = 'aiops-${environmentName}'
+var effectiveAuthClientSecret = empty(authClientSecret) ? 'not-configured' : authClientSecret
+var effectiveAuthSessionSecret = empty(authSessionSecret) ? uniqueString(resourceGroup().id, 'session') : authSessionSecret
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: '${prefix}-id'
@@ -123,6 +145,16 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
   properties: {
     managedEnvironmentId: containerEnv.id
     configuration: {
+      secrets: [
+        {
+          name: 'auth-client-secret'
+          value: effectiveAuthClientSecret
+        }
+        {
+          name: 'auth-session-secret'
+          value: effectiveAuthSessionSecret
+        }
+      ]
       ingress: {
         external: true
         targetPort: 8000
@@ -166,6 +198,30 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'AIOPS_ENABLE_LIVE_AZURE_INTEGRATIONS'
               value: string(enableLiveAzureIntegrations)
+            }
+            {
+              name: 'AIOPS_AUTH_ENABLED'
+              value: string(authEnabled)
+            }
+            {
+              name: 'AIOPS_AUTH_TENANT_ID'
+              value: authTenantId
+            }
+            {
+              name: 'AIOPS_AUTH_CLIENT_ID'
+              value: authClientId
+            }
+            {
+              name: 'AIOPS_AUTH_CLIENT_SECRET'
+              secretRef: 'auth-client-secret'
+            }
+            {
+              name: 'AIOPS_AUTH_SESSION_SECRET'
+              secretRef: 'auth-session-secret'
+            }
+            {
+              name: 'AIOPS_AUTH_POST_LOGOUT_REDIRECT_URI'
+              value: empty(authPostLogoutRedirectUri) ? 'http://127.0.0.1:8000/' : authPostLogoutRedirectUri
             }
             {
               name: 'AIOPS_AZURE_OPENAI_ENDPOINT'

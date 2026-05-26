@@ -29,6 +29,14 @@ class Settings(BaseSettings):
     enable_live_azure_integrations: bool = False
     automation_webhook_url: str | None = None
 
+    auth_enabled: bool = False
+    auth_tenant_id: str = "organizations"
+    auth_client_id: str | None = None
+    auth_client_secret: str | None = None
+    auth_session_secret: str = "change-me-to-a-long-random-secret"
+    auth_scopes: str = "openid profile email"
+    auth_post_logout_redirect_uri: str = "http://127.0.0.1:8000/"
+
     azure_openai_endpoint: str | None = None
     azure_openai_deployment: str | None = None
     azure_openai_api_version: str = "2024-02-15-preview"
@@ -82,6 +90,18 @@ class Settings(BaseSettings):
     @property
     def azure_openai_enabled(self) -> bool:
         return bool(self.azure_openai_endpoint and self.azure_openai_deployment)
+
+    @property
+    def auth_configured(self) -> bool:
+        return bool(self.auth_enabled and self.auth_client_id and self.auth_client_secret)
+
+    @property
+    def auth_authority(self) -> str:
+        return f"https://login.microsoftonline.com/{self.auth_tenant_id}"
+
+    @property
+    def auth_metadata_url(self) -> str:
+        return f"{self.auth_authority}/v2.0/.well-known/openid-configuration"
 
 
 @lru_cache

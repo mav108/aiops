@@ -1,10 +1,19 @@
-from typing import Any
 import sys
+from typing import Any
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse
+from fastapi import Depends, FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse
 
 from aiops_agent.analyzer import build_analyzer
+from aiops_agent.auth import (
+    SESSION_USER_KEY,
+    auth_status,
+    build_user_profile,
+    configure_auth,
+    microsoft_logout_url,
+    require_user,
+    session_user,
+)
 from aiops_agent.azure_clients import (
     AzureContextCollector,
     AzureEnterpriseIntegrationClient,
@@ -15,6 +24,7 @@ from aiops_agent.models import (
     AlertPollRequest,
     AlertIngestResponse,
     ApproveRequest,
+    AuthStatus,
     AuditEvent,
     Incident,
     IntegrationStatus,
@@ -24,6 +34,7 @@ from aiops_agent.models import (
     RemediationAction,
     ResourceDiscoveryRequest,
     ResourceDiscoveryResponse,
+    UserProfile,
 )
 from aiops_agent.remediation import RemediationExecutor
 from aiops_agent.state import JsonStateStore
@@ -40,11 +51,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     integrations = AzureEnterpriseIntegrationClient(settings)
 
     app = FastAPI(title=settings.app_name, version="0.1.0")
+    oauth = configure_auth(app, settings)
     app.state.settings = settings
     app.state.store = store
     app.state.processor = processor
     app.state.executor = executor
     app.state.integrations = integrations
+
+    def current_user(request: Request) -> UserProfile:
+        return require_user(request, settings)
 
     @app.get("/")
     def root() -> dict[str, Any]:
@@ -57,6 +72,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "framework": "fastapi",
             },
             "execution_mode": settings.execution_mode,
+            "auth": auth_status(settings).model_dump(mode="json"),
             "azure_integrations": integrations.status().model_dump(mode="json"),
             "docs": "/docs",
             "openapi": "/openapi.json",
@@ -74,6 +90,51 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             },
         }
 
+    @app.get("/auth/status", response_model=AuthStatus)
+    def get_auth_status() -> AuthStatus:
+        return auth_status(settings)
+
+    @app.get("/auth/login")
+    async def auth_login(request: Request):
+        if not settings.auth_enabled:
+            return RedirectResponse(url="/")
+        if not settings.auth_configured:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Microsoft login is enabled but AIOPS_AUTH_CLIENT_ID and "
+                    "AIOPS_AUTH_CLIENT_SECRET are not configured."
+                ),
+            )
+        redirect_uri = request.url_for("auth_callback")
+        return await oauth.microsoft.authorize_redirect(request, redirect_uri)
+
+    @app.get("/auth/callback")
+    async def auth_callback(request: Request):
+        if not settings.auth_configured:
+            raise HTTPException(status_code=500, detail="Microsoft login is not configured.")
+        token = await oauth.microsoft.authorize_access_token(request)
+        claims = dict(token.get("userinfo") or {})
+        profile = build_user_profile(claims)
+        request.session[SESSION_USER_KEY] = profile.model_dump(mode="json")
+        return RedirectResponse(url="/ui")
+
+    @app.get("/auth/logout")
+    def auth_logout(request: Request):
+        request.session.clear()
+        if settings.auth_enabled:
+            return RedirectResponse(url=microsoft_logout_url(settings))
+        return RedirectResponse(url="/")
+
+    @app.get("/me", response_model=UserProfile)
+    def me(request: Request) -> UserProfile:
+        if not settings.auth_enabled:
+            return current_user(request)
+        user = session_user(request)
+        if not user:
+            raise HTTPException(status_code=401, detail="Not signed in.")
+        return user
+
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
@@ -83,15 +144,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return processor.ingest_azure_monitor_alert(payload)
 
     @app.get("/integrations/status", response_model=IntegrationStatus)
-    def integration_status() -> IntegrationStatus:
+    def integration_status(_user: UserProfile = Depends(current_user)) -> IntegrationStatus:
         return integrations.status()
 
     @app.post("/integrations/log-analytics/query", response_model=LogAnalyticsQueryResponse)
-    def query_log_analytics(request: LogAnalyticsQueryRequest) -> LogAnalyticsQueryResponse:
+    def query_log_analytics(
+        request: LogAnalyticsQueryRequest,
+        _user: UserProfile = Depends(current_user),
+    ) -> LogAnalyticsQueryResponse:
         return integrations.query_log_analytics(request)
 
     @app.post("/integrations/log-analytics/poll-alerts", response_model=list[AlertIngestResponse])
-    def poll_log_analytics_alerts(request: AlertPollRequest) -> list[AlertIngestResponse]:
+    def poll_log_analytics_alerts(
+        request: AlertPollRequest,
+        _user: UserProfile = Depends(current_user),
+    ) -> list[AlertIngestResponse]:
         query_result = integrations.poll_workspace_alert_signals(request)
         if query_result.status in {"error", "not_configured"}:
             raise HTTPException(status_code=400, detail=query_result.message)
@@ -102,55 +169,80 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return responses
 
     @app.post("/integrations/resource-graph/discover", response_model=ResourceDiscoveryResponse)
-    def discover_resources(request: ResourceDiscoveryRequest) -> ResourceDiscoveryResponse:
+    def discover_resources(
+        request: ResourceDiscoveryRequest,
+        _user: UserProfile = Depends(current_user),
+    ) -> ResourceDiscoveryResponse:
         return integrations.discover_resources(request)
 
     @app.get("/incidents", response_model=list[Incident])
-    def list_incidents() -> list[Incident]:
+    def list_incidents(_user: UserProfile = Depends(current_user)) -> list[Incident]:
         return store.list_incidents()
 
     @app.get("/incidents/{incident_id}", response_model=Incident)
-    def get_incident(incident_id: str) -> Incident:
+    def get_incident(
+        incident_id: str,
+        _user: UserProfile = Depends(current_user),
+    ) -> Incident:
         incident = store.get_incident(incident_id)
         if not incident:
             raise HTTPException(status_code=404, detail="Incident not found")
         return incident
 
     @app.get("/incidents/{incident_id}/actions", response_model=list[RemediationAction])
-    def list_incident_actions(incident_id: str) -> list[RemediationAction]:
+    def list_incident_actions(
+        incident_id: str,
+        _user: UserProfile = Depends(current_user),
+    ) -> list[RemediationAction]:
         if not store.get_incident(incident_id):
             raise HTTPException(status_code=404, detail="Incident not found")
         return store.list_actions_for_incident(incident_id)
 
     @app.get("/incidents/{incident_id}/audit", response_model=list[AuditEvent])
-    def list_incident_audit(incident_id: str) -> list[AuditEvent]:
+    def list_incident_audit(
+        incident_id: str,
+        _user: UserProfile = Depends(current_user),
+    ) -> list[AuditEvent]:
         if not store.get_incident(incident_id):
             raise HTTPException(status_code=404, detail="Incident not found")
         return store.list_audit_events(incident_id)
 
     @app.post("/incidents/{incident_id}/approve")
-    def approve_incident(incident_id: str, request: ApproveRequest):
+    def approve_incident(
+        incident_id: str,
+        request: ApproveRequest,
+        _user: UserProfile = Depends(current_user),
+    ):
         try:
             return executor.approve_incident(incident_id, request.approver, request.comment)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.post("/incidents/{incident_id}/reject", response_model=Incident)
-    def reject_incident(incident_id: str, request: RejectRequest) -> Incident:
+    def reject_incident(
+        incident_id: str,
+        request: RejectRequest,
+        _user: UserProfile = Depends(current_user),
+    ) -> Incident:
         try:
             return executor.reject_incident(incident_id, request.rejected_by, request.reason)
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
 
     @app.get("/actions/{action_id}", response_model=RemediationAction)
-    def get_action(action_id: str) -> RemediationAction:
+    def get_action(
+        action_id: str,
+        _user: UserProfile = Depends(current_user),
+    ) -> RemediationAction:
         action = store.get_action(action_id)
         if not action:
             raise HTTPException(status_code=404, detail="Action not found")
         return action
 
-    @app.get("/ui", response_class=HTMLResponse)
-    def ui() -> str:
+    @app.get("/ui", response_class=HTMLResponse, response_model=None)
+    def ui(request: Request):
+        if settings.auth_enabled and not session_user(request):
+            return RedirectResponse(url="/auth/login")
         return _approval_ui()
 
     return app

@@ -208,3 +208,22 @@ class AlertPollRequest(BaseModel):
     workspace_id: str | None = None
     timespan_minutes: int | None = None
     max_alerts: int = 50
+
+
+class AuthStatus(BaseModel):
+    enabled: bool
+    configured: bool
+    authority: str
+    login_url: str
+    logout_url: str
+    profile_url: str
+
+
+class UserProfile(BaseModel):
+    authenticated: bool
+    name: str | None = None
+    username: str | None = None
+    email: str | None = None
+    object_id: str | None = None
+    tenant_id: str | None = None
+    claims: dict[str, Any] = Field(default_factory=dict)

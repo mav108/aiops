@@ -1,3 +1,9 @@
+from fastapi.testclient import TestClient
+
+from aiops_agent.app import create_app
+from aiops_agent.config import Settings
+
+
 def test_root_documents_python_runtime_and_enterprise_endpoints(client):
     response = client.get("/")
 
@@ -5,11 +11,57 @@ def test_root_documents_python_runtime_and_enterprise_endpoints(client):
     body = response.json()
     assert body["runtime"]["language"] == "python"
     assert body["runtime"]["framework"] == "fastapi"
+    assert body["auth"]["enabled"] is False
     assert body["docs"] == "/docs"
     assert body["endpoints"]["log_analytics_query"] == "POST /integrations/log-analytics/query"
     assert body["endpoints"]["resource_graph_discovery"] == (
         "POST /integrations/resource-graph/discover"
     )
+
+
+def test_me_returns_local_profile_when_auth_is_disabled(client):
+    response = client.get("/me")
+
+    assert response.status_code == 200
+    assert response.json()["username"] == "local"
+
+
+def test_operator_routes_require_login_when_auth_is_enabled(tmp_path):
+    app = create_app(
+        Settings(
+            state_file=tmp_path / "state.json",
+            auth_enabled=True,
+            auth_client_id="client-id",
+            auth_client_secret="client-secret",
+            auth_session_secret="test-session-secret",
+        )
+    )
+    with TestClient(app) as auth_client:
+        response = auth_client.get("/incidents")
+
+    assert response.status_code == 401
+    assert "Microsoft login required" in response.json()["detail"]
+
+
+def test_auth_status_reports_microsoft_authority_when_enabled(tmp_path):
+    app = create_app(
+        Settings(
+            state_file=tmp_path / "state.json",
+            auth_enabled=True,
+            auth_tenant_id="contoso-tenant-id",
+            auth_client_id="client-id",
+            auth_client_secret="client-secret",
+            auth_session_secret="test-session-secret",
+        )
+    )
+    with TestClient(app) as auth_client:
+        response = auth_client.get("/auth/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["configured"] is True
+    assert body["authority"] == "https://login.microsoftonline.com/contoso-tenant-id"
 
 
 def test_ingest_and_approve_vmss_alert(client, sample_alert):
