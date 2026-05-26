@@ -37,13 +37,14 @@ def parse_azure_monitor_alert(payload: dict[str, Any]) -> NormalizedAlert:
     )
 
 
-def _parse_datetime(value: str | None) -> datetime:
+def _parse_datetime(value: datetime | str | None) -> datetime:
     if not value:
         return datetime.now(timezone.utc)
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
     try:
         normalized = value.replace("Z", "+00:00")
         parsed = datetime.fromisoformat(normalized)
         return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
-    except ValueError:
+    except (TypeError, ValueError):
         return datetime.now(timezone.utc)
-
