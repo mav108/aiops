@@ -192,6 +192,14 @@ class AzureEnterpriseIntegrationClient:
                 workspace_id=None,
                 message=message,
             )
+        if not self.settings.enable_live_azure_integrations:
+            return LogAnalyticsQueryResponse(
+                status="configuration_only",
+                workspace_id=workspace_id,
+                columns=["query"],
+                rows=[{"query": request.query}],
+                message="Set AIOPS_ENABLE_LIVE_AZURE_INTEGRATIONS=true to execute live KQL.",
+            )
         if not is_guid(workspace_id):
             return LogAnalyticsQueryResponse(
                 status="invalid_workspace_id",
@@ -200,14 +208,6 @@ class AzureEnterpriseIntegrationClient:
                     "Log Analytics queries require the workspace customerId GUID, not the "
                     "workspace resource name. In Azure Portal this is shown as Workspace ID."
                 ),
-            )
-        if not self.settings.enable_live_azure_integrations:
-            return LogAnalyticsQueryResponse(
-                status="configuration_only",
-                workspace_id=workspace_id,
-                columns=["query"],
-                rows=[{"query": request.query}],
-                message="Set AIOPS_ENABLE_LIVE_AZURE_INTEGRATIONS=true to execute live KQL.",
             )
 
         try:
