@@ -4,8 +4,17 @@ from aiops_agent.app import create_app
 from aiops_agent.config import Settings
 
 
-def test_root_documents_python_runtime_and_enterprise_endpoints(client):
+def test_root_renders_html_service_status(client):
     response = client.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Service Status" in response.text
+    assert "Azure AIOps Agent" in response.text
+
+
+def test_api_status_documents_python_runtime_and_enterprise_endpoints(client):
+    response = client.get("/api/status")
 
     assert response.status_code == 200
     body = response.json()

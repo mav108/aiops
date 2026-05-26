@@ -62,8 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def current_user(request: Request) -> UserProfile:
         return require_user(request, settings)
 
-    @app.get("/")
-    def root() -> dict[str, Any]:
+    def service_status() -> dict[str, Any]:
         return {
             "name": settings.app_name,
             "environment": settings.environment,
@@ -92,6 +91,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "profile_json": "GET /api/me",
             },
         }
+
+    @app.get("/", response_class=HTMLResponse, response_model=None)
+    def root() -> str:
+        return _status_ui(service_status())
+
+    @app.get("/api/status")
+    def api_status() -> dict[str, Any]:
+        return service_status()
 
     @app.get("/auth/status", response_model=AuthStatus)
     def get_auth_status() -> AuthStatus:
@@ -256,6 +263,101 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return _approval_ui()
 
     return app
+
+
+def _status_ui(status: dict[str, Any]) -> str:
+    runtime = status["runtime"]
+    auth = status["auth"]
+    integrations = status["azure_integrations"]
+    auth_state = "Enabled" if auth["enabled"] else "Disabled"
+    auth_config = "Configured" if auth["configured"] else "Not configured"
+    integration_mode = integrations["mode"].replace("_", " ").title()
+    live_reads = "Enabled" if integrations["live_azure_integrations_enabled"] else "Disabled"
+    log_analytics = "Configured" if integrations["log_analytics_configured"] else "Not configured"
+    openai = "Configured" if integrations["azure_openai_configured"] else "Not configured"
+
+    return f"""
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Service Status - Azure AIOps Agent</title>
+  <style>
+    :root {{ font-family: Segoe UI, system-ui, sans-serif; color: #172033; background: #f6f8fb; }}
+    body {{ margin: 0; }}
+    header {{ background: #12395f; color: white; padding: 18px 24px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }}
+    header h1 {{ font-size: 20px; margin: 0; }}
+    nav {{ display: flex; gap: 14px; flex-wrap: wrap; }}
+    nav a {{ color: white; text-decoration: none; font-weight: 600; }}
+    main {{ max-width: 1120px; margin: 0 auto; padding: 28px 24px; }}
+    .hero {{ background: white; border: 1px solid #d9e1ec; border-radius: 8px; padding: 24px; display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap; }}
+    .hero h2 {{ margin: 0 0 8px; font-size: 26px; }}
+    .muted {{ color: #5d6b7a; }}
+    .badge {{ display: inline-flex; align-items: center; border-radius: 999px; padding: 6px 10px; background: #e8f4ef; color: #116149; font-weight: 700; font-size: 13px; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; margin-top: 18px; }}
+    .panel {{ background: white; border: 1px solid #d9e1ec; border-radius: 8px; padding: 18px; min-width: 0; }}
+    .label {{ color: #5d6b7a; font-size: 12px; text-transform: uppercase; font-weight: 700; margin-bottom: 8px; }}
+    .value {{ overflow-wrap: anywhere; font-size: 15px; }}
+    .actions {{ display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }}
+    a.button {{ background: #1267a8; color: white; text-decoration: none; border-radius: 6px; padding: 10px 14px; font-weight: 600; }}
+    a.button.secondary {{ background: #eef4f8; color: #17466d; }}
+    ul {{ margin: 10px 0 0; padding-left: 18px; }}
+    li {{ margin: 6px 0; }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Azure AIOps Agent</h1>
+    <nav>
+      <a href="/me">Profile</a>
+      <a href="/ui">Incidents</a>
+      <a href="/docs">API Docs</a>
+      <a href="/api/status">JSON</a>
+    </nav>
+  </header>
+  <main>
+    <section class="hero">
+      <div>
+        <h2>Service Status</h2>
+        <div class="muted">Python {html.escape(runtime["python_version"])} · FastAPI · {html.escape(status["environment"])}</div>
+      </div>
+      <div class="badge">{html.escape(status["execution_mode"]).title()} Mode</div>
+    </section>
+    <section class="grid" aria-label="Service status details">
+      <div class="panel"><div class="label">Authentication</div><div class="value">{auth_state} · {auth_config}</div></div>
+      <div class="panel"><div class="label">Authority</div><div class="value">{_escape(auth["authority"])}</div></div>
+      <div class="panel"><div class="label">Azure Integration Mode</div><div class="value">{integration_mode}</div></div>
+      <div class="panel"><div class="label">Live Azure Reads</div><div class="value">{live_reads}</div></div>
+      <div class="panel"><div class="label">Subscriptions</div><div class="value">{integrations["subscriptions_configured"]}</div></div>
+      <div class="panel"><div class="label">Workspace Mappings</div><div class="value">{integrations["log_analytics_workspace_mappings_configured"]}</div></div>
+      <div class="panel"><div class="label">Log Analytics</div><div class="value">{log_analytics}</div></div>
+      <div class="panel"><div class="label">Azure OpenAI</div><div class="value">{openai}</div></div>
+    </section>
+    <section class="grid" aria-label="Capabilities">
+      <div class="panel">
+        <div class="label">Ingestion</div>
+        <ul>{_list_items(integrations["supported_ingestion_modes"])}</ul>
+      </div>
+      <div class="panel">
+        <div class="label">Resources</div>
+        <ul>{_list_items(integrations["supported_resource_types"])}</ul>
+      </div>
+    </section>
+    <div class="actions">
+      <a class="button" href="/me">View Profile</a>
+      <a class="button secondary" href="/ui">Open Incidents</a>
+      <a class="button secondary" href="/docs">API Docs</a>
+      <a class="button secondary" href="/auth/status">Auth JSON</a>
+    </div>
+  </main>
+</body>
+</html>
+"""
+
+
+def _list_items(values: list[str]) -> str:
+    return "".join(f"<li>{_escape(value)}</li>" for value in values)
 
 
 def _profile_ui(user: UserProfile | None, auth_enabled: bool) -> str:
