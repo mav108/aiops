@@ -26,6 +26,8 @@ uvicorn aiops_agent.app:create_app --factory --reload
 
 Open `http://127.0.0.1:8000/docs` for the API.
 
+For a handoff-friendly setup guide, see `docs/python-environment.md`.
+
 Post the sample alert:
 
 ```powershell

@@ -1,4 +1,5 @@
 from typing import Any
+import sys
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
@@ -50,9 +51,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {
             "name": settings.app_name,
             "environment": settings.environment,
+            "runtime": {
+                "language": "python",
+                "python_version": sys.version.split()[0],
+                "framework": "fastapi",
+            },
             "execution_mode": settings.execution_mode,
+            "azure_integrations": integrations.status().model_dump(mode="json"),
             "docs": "/docs",
+            "openapi": "/openapi.json",
             "ui": "/ui",
+            "endpoints": {
+                "health": "GET /healthz",
+                "azure_monitor_webhook": "POST /alerts/azure-monitor",
+                "integration_status": "GET /integrations/status",
+                "log_analytics_query": "POST /integrations/log-analytics/query",
+                "log_analytics_poll_alerts": "POST /integrations/log-analytics/poll-alerts",
+                "resource_graph_discovery": "POST /integrations/resource-graph/discover",
+                "incidents": "GET /incidents",
+                "approval": "POST /incidents/{incident_id}/approve",
+                "rejection": "POST /incidents/{incident_id}/reject",
+            },
         }
 
     @app.get("/healthz")
