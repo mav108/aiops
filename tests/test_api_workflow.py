@@ -19,8 +19,16 @@ def test_root_documents_python_runtime_and_enterprise_endpoints(client):
     )
 
 
-def test_me_returns_local_profile_when_auth_is_disabled(client):
+def test_me_returns_html_profile_when_auth_is_disabled(client):
     response = client.get("/me")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "Local operator" in response.text
+
+
+def test_api_me_returns_json_profile_when_auth_is_disabled(client):
+    response = client.get("/api/me")
 
     assert response.status_code == 200
     assert response.json()["username"] == "local"

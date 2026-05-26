@@ -1,3 +1,4 @@
+import html
 import sys
 from typing import Any
 
@@ -87,6 +88,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "incidents": "GET /incidents",
                 "approval": "POST /incidents/{incident_id}/approve",
                 "rejection": "POST /incidents/{incident_id}/reject",
+                "profile": "GET /me",
+                "profile_json": "GET /api/me",
             },
         }
 
@@ -126,14 +129,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             return RedirectResponse(url=microsoft_logout_url(settings))
         return RedirectResponse(url="/")
 
-    @app.get("/me", response_model=UserProfile)
-    def me(request: Request) -> UserProfile:
+    @app.get("/api/me", response_model=UserProfile)
+    def me_json(request: Request) -> UserProfile:
         if not settings.auth_enabled:
             return current_user(request)
         user = session_user(request)
         if not user:
             raise HTTPException(status_code=401, detail="Not signed in.")
         return user
+
+    @app.get("/me", response_class=HTMLResponse, response_model=None)
+    def me(request: Request):
+        if not settings.auth_enabled:
+            return _profile_ui(current_user(request), auth_enabled=False)
+        user = session_user(request)
+        return _profile_ui(user, auth_enabled=True)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
@@ -246,6 +256,127 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return _approval_ui()
 
     return app
+
+
+def _profile_ui(user: UserProfile | None, auth_enabled: bool) -> str:
+    if user is None:
+        return """
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Profile - Azure AIOps Agent</title>
+  <style>
+    :root { font-family: Segoe UI, system-ui, sans-serif; color: #172033; background: #f6f8fb; }
+    body { margin: 0; }
+    header { background: #12395f; color: white; padding: 18px 24px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+    header h1 { font-size: 20px; margin: 0; }
+    main { max-width: 920px; margin: 0 auto; padding: 28px 24px; }
+    .panel { background: white; border: 1px solid #d9e1ec; border-radius: 8px; padding: 24px; }
+    .actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
+    a.button { background: #1267a8; color: white; text-decoration: none; border-radius: 6px; padding: 10px 14px; font-weight: 600; }
+    a.secondary { color: #17466d; text-decoration: none; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <header><h1>Azure AIOps Agent</h1><a class="secondary" style="color:white" href="/docs">API Docs</a></header>
+  <main>
+    <section class="panel">
+      <h2>Not Signed In</h2>
+      <p>Sign in with Microsoft to view your profile and access operator actions.</p>
+      <div class="actions">
+        <a class="button" href="/auth/login">Sign In</a>
+        <a class="secondary" href="/">Service Status</a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+    name = _escape(user.name or user.username or "Operator")
+    username = _escape(user.username or "")
+    email = _escape(user.email or "")
+    object_id = _escape(user.object_id or "")
+    tenant_id = _escape(user.tenant_id or "")
+    initials = _initials(user.name or user.username or "Operator")
+    auth_mode = "Microsoft Entra ID" if auth_enabled else "Local development"
+    sign_out = '<a class="button danger" href="/auth/logout">Sign Out</a>' if auth_enabled else ""
+
+    return f"""
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Profile - Azure AIOps Agent</title>
+  <style>
+    :root {{ font-family: Segoe UI, system-ui, sans-serif; color: #172033; background: #f6f8fb; }}
+    body {{ margin: 0; }}
+    header {{ background: #12395f; color: white; padding: 18px 24px; display: flex; justify-content: space-between; align-items: center; gap: 16px; }}
+    header h1 {{ font-size: 20px; margin: 0; }}
+    nav {{ display: flex; gap: 14px; flex-wrap: wrap; }}
+    nav a {{ color: white; text-decoration: none; font-weight: 600; }}
+    main {{ max-width: 1080px; margin: 0 auto; padding: 28px 24px; }}
+    .summary {{ display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: center; background: white; border: 1px solid #d9e1ec; border-radius: 8px; padding: 24px; }}
+    .avatar {{ width: 76px; height: 76px; border-radius: 50%; background: #1267a8; color: white; display: grid; place-items: center; font-size: 26px; font-weight: 700; }}
+    h2 {{ margin: 0 0 6px; font-size: 24px; }}
+    .muted {{ color: #5d6b7a; }}
+    .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; margin-top: 18px; }}
+    .field {{ background: white; border: 1px solid #d9e1ec; border-radius: 8px; padding: 16px; min-width: 0; }}
+    .label {{ color: #5d6b7a; font-size: 12px; text-transform: uppercase; font-weight: 700; margin-bottom: 8px; }}
+    .value {{ overflow-wrap: anywhere; font-size: 15px; }}
+    .actions {{ display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }}
+    a.button {{ background: #1267a8; color: white; text-decoration: none; border-radius: 6px; padding: 10px 14px; font-weight: 600; }}
+    a.button.secondary {{ background: #eef4f8; color: #17466d; }}
+    a.button.danger {{ background: #a83232; }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Azure AIOps Agent</h1>
+    <nav>
+      <a href="/ui">Incidents</a>
+      <a href="/docs">API Docs</a>
+      <a href="/api/me">JSON</a>
+    </nav>
+  </header>
+  <main>
+    <section class="summary">
+      <div class="avatar">{initials}</div>
+      <div>
+        <h2>{name}</h2>
+        <div class="muted">{email or username}</div>
+        <div class="actions">
+          <a class="button" href="/ui">Open Incidents</a>
+          <a class="button secondary" href="/">Service Status</a>
+          {sign_out}
+        </div>
+      </div>
+    </section>
+    <section class="grid" aria-label="Profile details">
+      <div class="field"><div class="label">Authentication</div><div class="value">{auth_mode}</div></div>
+      <div class="field"><div class="label">Username</div><div class="value">{username or "Not provided"}</div></div>
+      <div class="field"><div class="label">Email</div><div class="value">{email or "Not provided"}</div></div>
+      <div class="field"><div class="label">Tenant ID</div><div class="value">{tenant_id or "Not provided"}</div></div>
+      <div class="field"><div class="label">Object ID</div><div class="value">{object_id or "Not provided"}</div></div>
+      <div class="field"><div class="label">Session</div><div class="value">Browser session active</div></div>
+    </section>
+  </main>
+</body>
+</html>
+"""
+
+
+def _escape(value: str) -> str:
+    return html.escape(value, quote=True)
+
+
+def _initials(value: str) -> str:
+    parts = [part for part in value.replace("@", " ").replace(".", " ").split() if part]
+    letters = "".join(part[0] for part in parts[:2]).upper()
+    return html.escape(letters or "OP", quote=True)
 
 
 def _approval_ui() -> str:

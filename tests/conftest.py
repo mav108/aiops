@@ -9,7 +9,14 @@ from aiops_agent.config import Settings
 
 @pytest.fixture
 def client(tmp_path) -> Iterator[TestClient]:
-    settings = Settings(state_file=tmp_path / "state.json", execution_mode="mock")
+    settings = Settings(
+        state_file=tmp_path / "state.json",
+        execution_mode="mock",
+        auth_enabled=False,
+        log_analytics_workspace_id=None,
+        log_analytics_workspace_map="",
+        enable_live_azure_integrations=False,
+    )
     app = create_app(settings)
     with TestClient(app) as test_client:
         yield test_client
@@ -36,4 +43,3 @@ def sample_alert() -> dict:
             "alertContext": {"condition": {"metricName": "Percentage CPU"}},
         },
     }
-

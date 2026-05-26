@@ -83,7 +83,11 @@ def test_resource_discovery_query_includes_vmss_and_aks():
 
 
 def test_poll_alerts_requires_workspace_configuration(tmp_path):
-    settings = Settings(state_file=tmp_path / "state.json")
+    settings = Settings(
+        state_file=tmp_path / "state.json",
+        log_analytics_workspace_id=None,
+        log_analytics_workspace_map="",
+    )
     client = AzureEnterpriseIntegrationClient(settings)
 
     response = client.poll_workspace_alert_signals(AlertPollRequest())
