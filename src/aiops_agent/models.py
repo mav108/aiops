@@ -227,3 +227,27 @@ class UserProfile(BaseModel):
     object_id: str | None = None
     tenant_id: str | None = None
     claims: dict[str, Any] = Field(default_factory=dict)
+
+
+class AzureOpenAIStatus(BaseModel):
+    enabled: bool
+    configured: bool
+    endpoint_configured: bool
+    deployment_configured: bool
+    api_version: str
+    auth_mode: str
+    api_key_configured: bool
+    deployment: str | None = None
+    message: str
+
+
+class AzureOpenAITestRequest(BaseModel):
+    prompt: str = "Return one short sentence confirming Azure OpenAI connectivity."
+
+
+class AzureOpenAITestResponse(BaseModel):
+    status: str
+    provider: str
+    deployment: str | None = None
+    output: str | None = None
+    message: str | None = None

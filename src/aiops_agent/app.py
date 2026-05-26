@@ -15,6 +15,7 @@ from aiops_agent.auth import (
     require_user,
     session_user,
 )
+from aiops_agent.azure_openai import AzureOpenAIService
 from aiops_agent.azure_clients import (
     AzureContextCollector,
     AzureEnterpriseIntegrationClient,
@@ -27,6 +28,9 @@ from aiops_agent.models import (
     ApproveRequest,
     AuthStatus,
     AuditEvent,
+    AzureOpenAIStatus,
+    AzureOpenAITestRequest,
+    AzureOpenAITestResponse,
     Incident,
     IntegrationStatus,
     LogAnalyticsQueryRequest,
@@ -50,6 +54,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     processor = AlertProcessor(store, context_collector, analyzer)
     executor = RemediationExecutor(settings, store, AzureRemediationClient(settings))
     integrations = AzureEnterpriseIntegrationClient(settings)
+    azure_openai = AzureOpenAIService(settings)
 
     app = FastAPI(title=settings.app_name, version="0.1.0")
     oauth = configure_auth(app, settings)
@@ -58,6 +63,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.state.processor = processor
     app.state.executor = executor
     app.state.integrations = integrations
+    app.state.azure_openai = azure_openai
 
     def current_user(request: Request) -> UserProfile:
         return require_user(request, settings)
@@ -74,6 +80,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             "execution_mode": settings.execution_mode,
             "auth": auth_status(settings).model_dump(mode="json"),
             "azure_integrations": integrations.status().model_dump(mode="json"),
+            "azure_openai": azure_openai.status().model_dump(mode="json"),
             "docs": "/docs",
             "openapi": "/openapi.json",
             "ui": "/ui",
@@ -84,6 +91,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 "log_analytics_query": "POST /integrations/log-analytics/query",
                 "log_analytics_poll_alerts": "POST /integrations/log-analytics/poll-alerts",
                 "resource_graph_discovery": "POST /integrations/resource-graph/discover",
+                "azure_openai_status": "GET /integrations/azure-openai/status",
+                "azure_openai_test": "POST /integrations/azure-openai/test",
                 "incidents": "GET /incidents",
                 "approval": "POST /incidents/{incident_id}/approve",
                 "rejection": "POST /incidents/{incident_id}/reject",
@@ -163,6 +172,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/integrations/status", response_model=IntegrationStatus)
     def integration_status(_user: UserProfile = Depends(current_user)) -> IntegrationStatus:
         return integrations.status()
+
+    @app.get("/integrations/azure-openai/status", response_model=AzureOpenAIStatus)
+    def azure_openai_status(_user: UserProfile = Depends(current_user)) -> AzureOpenAIStatus:
+        return azure_openai.status()
+
+    @app.post("/integrations/azure-openai/test", response_model=AzureOpenAITestResponse)
+    def azure_openai_test(
+        request: AzureOpenAITestRequest,
+        _user: UserProfile = Depends(current_user),
+    ) -> AzureOpenAITestResponse:
+        return azure_openai.test_chat(request.prompt)
 
     @app.post("/integrations/log-analytics/query", response_model=LogAnalyticsQueryResponse)
     def query_log_analytics(
@@ -269,12 +289,13 @@ def _status_ui(status: dict[str, Any]) -> str:
     runtime = status["runtime"]
     auth = status["auth"]
     integrations = status["azure_integrations"]
+    azure_openai = status["azure_openai"]
     auth_state = "Enabled" if auth["enabled"] else "Disabled"
     auth_config = "Configured" if auth["configured"] else "Not configured"
     integration_mode = integrations["mode"].replace("_", " ").title()
     live_reads = "Enabled" if integrations["live_azure_integrations_enabled"] else "Disabled"
     log_analytics = "Configured" if integrations["log_analytics_configured"] else "Not configured"
-    openai = "Configured" if integrations["azure_openai_configured"] else "Not configured"
+    openai = "Configured" if azure_openai["configured"] else "Not configured"
 
     return f"""
 <!doctype html>
@@ -333,6 +354,8 @@ def _status_ui(status: dict[str, Any]) -> str:
       <div class="panel"><div class="label">Workspace Mappings</div><div class="value">{integrations["log_analytics_workspace_mappings_configured"]}</div></div>
       <div class="panel"><div class="label">Log Analytics</div><div class="value">{log_analytics}</div></div>
       <div class="panel"><div class="label">Azure OpenAI</div><div class="value">{openai}</div></div>
+      <div class="panel"><div class="label">OpenAI Deployment</div><div class="value">{_escape(azure_openai["deployment"] or "Not configured")}</div></div>
+      <div class="panel"><div class="label">OpenAI Auth Mode</div><div class="value">{_escape(azure_openai["auth_mode"])}</div></div>
     </section>
     <section class="grid" aria-label="Capabilities">
       <div class="panel">
@@ -348,6 +371,7 @@ def _status_ui(status: dict[str, Any]) -> str:
       <a class="button" href="/me">View Profile</a>
       <a class="button secondary" href="/ui">Open Incidents</a>
       <a class="button secondary" href="/docs">API Docs</a>
+      <a class="button secondary" href="/integrations/azure-openai/status">Azure OpenAI JSON</a>
       <a class="button secondary" href="/auth/status">Auth JSON</a>
     </div>
   </main>

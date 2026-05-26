@@ -3,6 +3,7 @@ from aiops_agent.azure_clients import (
     build_default_alert_signal_query,
     build_resource_discovery_query,
 )
+from aiops_agent.azure_openai import AzureOpenAIService
 from aiops_agent.config import Settings
 from aiops_agent.models import AlertPollRequest, LogAnalyticsQueryRequest, ResourceDiscoveryRequest
 
@@ -117,3 +118,51 @@ def test_discover_resources_is_configuration_only_with_subscriptions(tmp_path):
     assert response.status == "configuration_only"
     assert response.subscriptions == ["sub-a"]
     assert "Resources" in response.query
+
+
+def test_azure_openai_status_requires_endpoint_deployment_and_auth(tmp_path):
+    settings = Settings(
+        state_file=tmp_path / "state.json",
+        azure_openai_endpoint=None,
+        azure_openai_deployment=None,
+        azure_openai_api_key=None,
+    )
+    service = AzureOpenAIService(settings)
+
+    status = service.status()
+
+    assert status.configured is False
+    assert status.endpoint_configured is False
+    assert "AIOPS_AZURE_OPENAI_ENDPOINT" in status.message
+
+
+def test_azure_openai_status_supports_api_key_mode(tmp_path):
+    settings = Settings(
+        state_file=tmp_path / "state.json",
+        azure_openai_endpoint="https://example.openai.azure.com/",
+        azure_openai_deployment="gpt-test",
+        azure_openai_api_key="test-key",
+        azure_openai_auth_mode="api_key",
+    )
+    service = AzureOpenAIService(settings)
+
+    status = service.status()
+
+    assert status.configured is True
+    assert status.auth_mode == "api_key"
+    assert status.api_key_configured is True
+
+
+def test_azure_openai_smoke_test_returns_not_configured_without_secrets(tmp_path):
+    settings = Settings(
+        state_file=tmp_path / "state.json",
+        azure_openai_endpoint="https://example.openai.azure.com/",
+        azure_openai_deployment="gpt-test",
+        azure_openai_api_key=None,
+        azure_openai_auth_mode="api_key",
+    )
+    service = AzureOpenAIService(settings)
+
+    response = service.test_chat("hello")
+
+    assert response.status == "not_configured"

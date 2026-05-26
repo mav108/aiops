@@ -23,9 +23,19 @@ def test_api_status_documents_python_runtime_and_enterprise_endpoints(client):
     assert body["auth"]["enabled"] is False
     assert body["docs"] == "/docs"
     assert body["endpoints"]["log_analytics_query"] == "POST /integrations/log-analytics/query"
+    assert body["endpoints"]["azure_openai_status"] == "GET /integrations/azure-openai/status"
     assert body["endpoints"]["resource_graph_discovery"] == (
         "POST /integrations/resource-graph/discover"
     )
+
+
+def test_azure_openai_status_endpoint_reports_not_configured(client):
+    response = client.get("/integrations/azure-openai/status")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["configured"] is False
+    assert body["endpoint_configured"] is False
 
 
 def test_me_returns_html_profile_when_auth_is_disabled(client):

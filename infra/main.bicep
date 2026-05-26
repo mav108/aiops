@@ -13,6 +13,20 @@ param azureOpenAIEndpoint string = ''
 @description('Azure OpenAI deployment name. Leave empty to use deterministic local analysis.')
 param azureOpenAIDeployment string = ''
 
+@description('Azure OpenAI API version used by the Python client.')
+param azureOpenAIApiVersion string = '2024-02-15-preview'
+
+@description('Azure OpenAI auth mode: api_key or managed_identity.')
+@allowed([
+  'api_key'
+  'managed_identity'
+])
+param azureOpenAIAuthMode string = 'managed_identity'
+
+@secure()
+@description('Azure OpenAI API key. Prefer managed identity in Azure deployments.')
+param azureOpenAIApiKey string = ''
+
 @description('Comma-separated subscription IDs monitored by the agent.')
 param monitoredSubscriptionIds string = ''
 
@@ -48,6 +62,7 @@ param authPostLogoutRedirectUri string = ''
 var prefix = 'aiops-${environmentName}'
 var effectiveAuthClientSecret = empty(authClientSecret) ? 'not-configured' : authClientSecret
 var effectiveAuthSessionSecret = empty(authSessionSecret) ? uniqueString(resourceGroup().id, 'session') : authSessionSecret
+var effectiveAzureOpenAIApiKey = empty(azureOpenAIApiKey) ? 'not-configured' : azureOpenAIApiKey
 
 resource identity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
   name: '${prefix}-id'
@@ -154,6 +169,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
           name: 'auth-session-secret'
           value: effectiveAuthSessionSecret
         }
+        {
+          name: 'azure-openai-api-key'
+          value: effectiveAzureOpenAIApiKey
+        }
       ]
       ingress: {
         external: true
@@ -230,6 +249,18 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'AIOPS_AZURE_OPENAI_DEPLOYMENT'
               value: azureOpenAIDeployment
+            }
+            {
+              name: 'AIOPS_AZURE_OPENAI_API_VERSION'
+              value: azureOpenAIApiVersion
+            }
+            {
+              name: 'AIOPS_AZURE_OPENAI_AUTH_MODE'
+              value: azureOpenAIAuthMode
+            }
+            {
+              name: 'AIOPS_AZURE_OPENAI_API_KEY'
+              secretRef: 'azure-openai-api-key'
             }
             {
               name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'

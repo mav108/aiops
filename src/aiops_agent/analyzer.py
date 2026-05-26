@@ -2,6 +2,7 @@ import json
 from typing import Any
 
 from aiops_agent.config import Settings
+from aiops_agent.azure_openai import AzureOpenAIService
 from aiops_agent.models import (
     ActionType,
     IncidentRecommendation,
@@ -134,24 +135,16 @@ class AzureOpenAIAnalyzer(AIOpsAnalyzer):
     def __init__(self, settings: Settings, fallback: AIOpsAnalyzer | None = None):
         self.settings = settings
         self.fallback = fallback or DeterministicAnalyzer()
+        self.azure_openai = AzureOpenAIService(settings)
 
     def recommend(self, alert: NormalizedAlert, context: dict[str, Any], incident_id: str) -> IncidentRecommendation:
-        if not self.settings.azure_openai_enabled:
+        if not self.settings.azure_openai_configured:
             return self.fallback.recommend(alert, context, incident_id)
         try:
-            from openai import AzureOpenAI
-
-            client_kwargs: dict[str, Any] = {
-                "azure_endpoint": self.settings.azure_openai_endpoint,
-                "api_version": self.settings.azure_openai_api_version,
-            }
-            if self.settings.azure_openai_api_key:
-                client_kwargs["api_key"] = self.settings.azure_openai_api_key
-
-            client = AzureOpenAI(**client_kwargs)
-            response = client.chat.completions.create(
+            response = self.azure_openai.client().chat.completions.create(
                 model=self.settings.azure_openai_deployment,
                 temperature=0.1,
+                max_tokens=450,
                 response_format={"type": "json_object"},
                 messages=[
                     {
@@ -159,7 +152,8 @@ class AzureOpenAIAnalyzer(AIOpsAnalyzer):
                         "content": (
                             "You are an Azure AIOps incident analyst. Return JSON with summary, "
                             "blast_radius, likely_causes, and one safe recommended_action. Never "
-                            "recommend destructive remediation."
+                            "recommend destructive remediation. Recommended actions are advisory; "
+                            "the system will keep its predefined approval-gated action catalog."
                         ),
                     },
                     {
@@ -177,7 +171,12 @@ class AzureOpenAIAnalyzer(AIOpsAnalyzer):
             base.summary = ai_payload.get("summary") or base.summary
             base.blast_radius = ai_payload.get("blast_radius") or base.blast_radius
             base.likely_causes = ai_payload.get("likely_causes") or base.likely_causes
-            base.model_metadata = {"provider": "azure_openai", "fallback_actions": True}
+            base.model_metadata = {
+                "provider": "azure_openai",
+                "fallback_actions": True,
+                "deployment": self.settings.azure_openai_deployment,
+                "auth_mode": self.settings.azure_openai_auth_mode,
+            }
             return base
         except Exception as exc:
             recommendation = self.fallback.recommend(alert, context, incident_id)
@@ -198,4 +197,3 @@ def _blast_radius(alert: NormalizedAlert) -> str:
     if len(alert.resource_ids) == 1:
         return f"Limited to {alert.resource_ids[0]} unless dependent services are affected."
     return f"Potentially affects {len(alert.resource_ids)} Azure resources and their dependencies."
-

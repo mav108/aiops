@@ -16,6 +16,10 @@ def client(tmp_path) -> Iterator[TestClient]:
         log_analytics_workspace_id=None,
         log_analytics_workspace_map="",
         enable_live_azure_integrations=False,
+        azure_openai_endpoint=None,
+        azure_openai_deployment=None,
+        azure_openai_api_key=None,
+        azure_openai_auth_mode="api_key",
     )
     app = create_app(settings)
     with TestClient(app) as test_client:

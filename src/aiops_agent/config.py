@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     azure_openai_deployment: str | None = None
     azure_openai_api_version: str = "2024-02-15-preview"
     azure_openai_api_key: str | None = None
+    azure_openai_auth_mode: Literal["api_key", "managed_identity"] = "api_key"
 
     @field_validator("remediation_allowlist", "destructive_action_allowlist")
     @classmethod
@@ -89,7 +90,15 @@ class Settings(BaseSettings):
 
     @property
     def azure_openai_enabled(self) -> bool:
-        return bool(self.azure_openai_endpoint and self.azure_openai_deployment)
+        return self.azure_openai_configured
+
+    @property
+    def azure_openai_configured(self) -> bool:
+        if not (self.azure_openai_endpoint and self.azure_openai_deployment):
+            return False
+        if self.azure_openai_auth_mode == "api_key":
+            return bool(self.azure_openai_api_key)
+        return True
 
     @property
     def auth_configured(self) -> bool:
