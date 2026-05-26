@@ -1,0 +1,33 @@
+{
+  "schemaId": "azureMonitorCommonAlertSchema",
+  "data": {
+    "essentials": {
+      "alertId": "/subscriptions/00000000-0000-0000-0000-000000000000/providers/Microsoft.AlertsManagement/alerts/sample-high-cpu",
+      "alertRule": "vmss-prod-cpu-dynamic-threshold",
+      "severity": "Sev2",
+      "signalType": "Metric",
+      "monitorCondition": "Fired",
+      "monitoringService": "Platform",
+      "alertTargetIDs": [
+        "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachineScaleSets/vmss-web-prod"
+      ],
+      "originAlertId": "sample-high-cpu",
+      "firedDateTime": "2026-05-26T13:30:00Z",
+      "description": "CPU percentage breached dynamic threshold for the production VM Scale Set."
+    },
+    "alertContext": {
+      "conditionType": "DynamicThresholdCriteria",
+      "condition": {
+        "metricName": "Percentage CPU",
+        "operator": "GreaterThan",
+        "threshold": "High"
+      },
+      "properties": {
+        "service": "web",
+        "environment": "prod",
+        "owner": "platform"
+      }
+    }
+  }
+}
+
