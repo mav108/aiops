@@ -65,6 +65,20 @@ def test_log_analytics_query_explicit_workspace_overrides_mapping(tmp_path):
     assert response.workspace_id == "override-workspace"
 
 
+def test_log_analytics_query_rejects_workspace_name(tmp_path):
+    settings = Settings(
+        state_file=tmp_path / "state.json",
+        log_analytics_workspace_id="workspace-name",
+        enable_live_azure_integrations=True,
+    )
+    client = AzureEnterpriseIntegrationClient(settings)
+
+    response = client.query_log_analytics(LogAnalyticsQueryRequest(query="AzureActivity | take 1"))
+
+    assert response.status == "invalid_workspace_id"
+    assert "customerId GUID" in response.message
+
+
 def test_workspace_map_accepts_json(tmp_path):
     settings = Settings(
         state_file=tmp_path / "state.json",
