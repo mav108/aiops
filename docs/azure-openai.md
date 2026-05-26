@@ -9,7 +9,7 @@ For local testing with an API key:
 ```env
 AIOPS_AZURE_OPENAI_ENDPOINT=https://<resource-name>.openai.azure.com/
 AIOPS_AZURE_OPENAI_DEPLOYMENT=<deployment-name>
-AIOPS_AZURE_OPENAI_API_VERSION=2024-02-15-preview
+AIOPS_AZURE_OPENAI_API_VERSION=v1
 AIOPS_AZURE_OPENAI_AUTH_MODE=api_key
 AIOPS_AZURE_OPENAI_API_KEY=<azure-openai-key>
 ```
@@ -23,6 +23,7 @@ For Azure Container Apps, prefer managed identity:
 ```env
 AIOPS_AZURE_OPENAI_ENDPOINT=https://<resource-name>.openai.azure.com/
 AIOPS_AZURE_OPENAI_DEPLOYMENT=<deployment-name>
+AIOPS_AZURE_OPENAI_API_VERSION=v1
 AIOPS_AZURE_OPENAI_AUTH_MODE=managed_identity
 ```
 

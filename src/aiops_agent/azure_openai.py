@@ -45,6 +45,9 @@ class AzureOpenAIService:
         if not self.settings.azure_openai_configured:
             raise ValueError(self.status().message)
 
+        if self.settings.azure_openai_api_version.lower() == "v1":
+            return self._v1_client()
+
         from openai import AzureOpenAI
 
         client_kwargs: dict[str, Any] = {
@@ -64,6 +67,27 @@ class AzureOpenAIService:
             client_kwargs["azure_ad_token_provider"] = token_provider
 
         return AzureOpenAI(**client_kwargs)
+
+    def _v1_client(self):
+        from openai import OpenAI
+
+        endpoint = (self.settings.azure_openai_endpoint or "").rstrip("/")
+        client_kwargs: dict[str, Any] = {
+            "base_url": f"{endpoint}/openai/v1/",
+        }
+
+        if self.settings.azure_openai_auth_mode == "api_key":
+            client_kwargs["api_key"] = self.settings.azure_openai_api_key
+        else:
+            from azure.identity import DefaultAzureCredential, get_bearer_token_provider
+
+            token_provider = get_bearer_token_provider(
+                DefaultAzureCredential(),
+                "https://cognitiveservices.azure.com/.default",
+            )
+            client_kwargs["api_key"] = token_provider
+
+        return OpenAI(**client_kwargs)
 
     def test_chat(self, prompt: str) -> AzureOpenAITestResponse:
         status = self.status()
