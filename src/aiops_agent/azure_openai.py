@@ -102,8 +102,7 @@ class AzureOpenAIService:
         try:
             response = self.client().chat.completions.create(
                 model=self.settings.azure_openai_deployment,
-                temperature=0,
-                max_tokens=80,
+                max_completion_tokens=80,
                 messages=[
                     {
                         "role": "system",
@@ -166,8 +165,7 @@ class AzureOpenAIService:
         try:
             response = self.client().chat.completions.create(
                 model=self.settings.azure_openai_deployment,
-                temperature=0.1,
-                max_tokens=700,
+                max_completion_tokens=700,
                 messages=[
                     {
                         "role": "system",

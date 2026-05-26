@@ -143,8 +143,7 @@ class AzureOpenAIAnalyzer(AIOpsAnalyzer):
         try:
             response = self.azure_openai.client().chat.completions.create(
                 model=self.settings.azure_openai_deployment,
-                temperature=0.1,
-                max_tokens=450,
+                max_completion_tokens=450,
                 response_format={"type": "json_object"},
                 messages=[
                     {
