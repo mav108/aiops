@@ -12,9 +12,22 @@ Use both push and pull in enterprise environments:
 
 1. Assign the agent managed identity read access to the existing subscriptions or management-group scoped resource groups.
 2. Add `AIOPS_AZURE_SUBSCRIPTION_IDS` with comma-separated subscription IDs.
-3. Add `AIOPS_LOG_ANALYTICS_WORKSPACE_ID` for the central workspace or pass a workspace ID per request.
+3. Add `AIOPS_LOG_ANALYTICS_WORKSPACE_MAP` for one workspace per subscription, or `AIOPS_LOG_ANALYTICS_WORKSPACE_ID` for a central/default workspace.
 4. Keep `AIOPS_EXECUTION_MODE=mock` until approvals, RBAC, and runbooks have been validated.
 5. Enable `AIOPS_ENABLE_LIVE_AZURE_INTEGRATIONS=true` to allow live Resource Graph and Log Analytics reads.
+
+Example `.env` for separate workspaces:
+
+```env
+AIOPS_AZURE_SUBSCRIPTION_IDS=00000000-0000-0000-0000-000000000001,00000000-0000-0000-0000-000000000002
+AIOPS_LOG_ANALYTICS_WORKSPACE_MAP=00000000-0000-0000-0000-000000000001=11111111-1111-1111-1111-111111111111,00000000-0000-0000-0000-000000000002=22222222-2222-2222-2222-222222222222
+```
+
+The same mapping can be provided as JSON if that is easier for deployment pipelines:
+
+```env
+AIOPS_LOG_ANALYTICS_WORKSPACE_MAP={"00000000-0000-0000-0000-000000000001":"11111111-1111-1111-1111-111111111111","00000000-0000-0000-0000-000000000002":"22222222-2222-2222-2222-222222222222"}
+```
 
 ## Azure Monitor Action Group
 
@@ -35,6 +48,26 @@ Use pull mode when alerts are represented as KQL signals, when historical replay
 - Perf CPU samples above 90 percent.
 
 Enterprise teams should replace the default query with workspace-specific KQL for VM, VMSS, AKS, Application Insights, Sentinel, and platform logs.
+
+Test one mapped subscription:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"subscription_id":"00000000-0000-0000-0000-000000000001","query":"AzureActivity | take 10"}' `
+  -Uri http://127.0.0.1:8000/integrations/log-analytics/query
+```
+
+Poll one mapped subscription for alert-like signals:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"subscription_id":"00000000-0000-0000-0000-000000000001","max_alerts":25}' `
+  -Uri http://127.0.0.1:8000/integrations/log-analytics/poll-alerts
+```
 
 ## Resource Graph Discovery
 

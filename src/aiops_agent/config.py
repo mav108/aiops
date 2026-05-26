@@ -1,3 +1,4 @@
+import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Literal
@@ -23,6 +24,7 @@ class Settings(BaseSettings):
 
     azure_subscription_ids: str = ""
     log_analytics_workspace_id: str | None = None
+    log_analytics_workspace_map: str = ""
     log_query_timespan_minutes: int = 60
     enable_live_azure_integrations: bool = False
     automation_webhook_url: str | None = None
@@ -40,6 +42,34 @@ class Settings(BaseSettings):
     @property
     def subscription_id_list(self) -> list[str]:
         return [part.strip() for part in self.azure_subscription_ids.split(",") if part.strip()]
+
+    @property
+    def workspace_map(self) -> dict[str, str]:
+        if not self.log_analytics_workspace_map.strip():
+            return {}
+
+        raw_value = self.log_analytics_workspace_map.strip()
+        if raw_value.startswith("{"):
+            parsed = json.loads(raw_value)
+            return {str(key).strip(): str(value).strip() for key, value in parsed.items() if value}
+
+        mappings: dict[str, str] = {}
+        for pair in raw_value.split(","):
+            if not pair.strip():
+                continue
+            if "=" not in pair:
+                raise ValueError(
+                    "AIOPS_LOG_ANALYTICS_WORKSPACE_MAP must use 'subscription=workspace' pairs "
+                    "or a JSON object."
+                )
+            subscription_id, workspace_id = pair.split("=", 1)
+            mappings[subscription_id.strip()] = workspace_id.strip()
+        return mappings
+
+    def resolve_workspace_id(self, subscription_id: str | None = None) -> str | None:
+        if subscription_id and subscription_id in self.workspace_map:
+            return self.workspace_map[subscription_id]
+        return self.log_analytics_workspace_id
 
     @property
     def remediation_allowlist_set(self) -> set[str]:

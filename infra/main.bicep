@@ -19,6 +19,9 @@ param monitoredSubscriptionIds string = ''
 @description('Optional Log Analytics workspace ID used for incident context queries.')
 param logAnalyticsWorkspaceId string = ''
 
+@description('Optional comma-separated subscription=workspace mapping for estates with one workspace per subscription.')
+param logAnalyticsWorkspaceMap string = ''
+
 @description('Whether the agent should execute live Azure read integrations. Keep false during first deployment.')
 param enableLiveAzureIntegrations bool = false
 
@@ -151,6 +154,10 @@ resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
             {
               name: 'AIOPS_LOG_ANALYTICS_WORKSPACE_ID'
               value: empty(logAnalyticsWorkspaceId) ? workspace.properties.customerId : logAnalyticsWorkspaceId
+            }
+            {
+              name: 'AIOPS_LOG_ANALYTICS_WORKSPACE_MAP'
+              value: logAnalyticsWorkspaceMap
             }
             {
               name: 'AIOPS_LOG_QUERY_TIMESPAN_MINUTES'

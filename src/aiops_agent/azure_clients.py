@@ -56,9 +56,15 @@ class AzureContextCollector:
         }
 
     def _recent_logs(self, alert: NormalizedAlert) -> dict[str, Any]:
-        if not self.settings.log_analytics_workspace_id:
+        subscription_id = None
+        if alert.primary_resource_id:
+            subscription_id = parse_resource_id(alert.primary_resource_id).get("subscriptions")
+        workspace_id = self.settings.resolve_workspace_id(subscription_id)
+
+        if not workspace_id:
             return {
                 "status": "not_configured",
+                "subscription_id": subscription_id,
                 "queries": [
                     "Perf | where CounterName in ('% Processor Time', 'Available MBytes')",
                     "Event | where EventLevelName in ('Error', 'Warning')",
@@ -67,11 +73,12 @@ class AzureContextCollector:
             }
         return {
             "status": "configured",
-            "workspace_id": self.settings.log_analytics_workspace_id,
+            "subscription_id": subscription_id,
+            "workspace_id": workspace_id,
             "queries": build_resource_context_queries(alert),
             "note": (
                 "Use /integrations/log-analytics/query or /integrations/log-analytics/poll-alerts "
-                "to execute KQL against the configured workspace."
+                "with subscription_id to execute KQL against the mapped workspace."
             ),
         }
 
@@ -156,7 +163,10 @@ class AzureEnterpriseIntegrationClient:
             mode="live" if self.settings.enable_live_azure_integrations else "configuration_only",
             live_azure_integrations_enabled=self.settings.enable_live_azure_integrations,
             subscriptions_configured=len(self.settings.subscription_id_list),
-            log_analytics_configured=bool(self.settings.log_analytics_workspace_id),
+            log_analytics_configured=bool(
+                self.settings.log_analytics_workspace_id or self.settings.workspace_map
+            ),
+            log_analytics_workspace_mappings_configured=len(self.settings.workspace_map),
             azure_openai_configured=self.settings.azure_openai_enabled,
             supported_ingestion_modes=[
                 "Azure Monitor Action Group webhook",
@@ -172,12 +182,14 @@ class AzureEnterpriseIntegrationClient:
         )
 
     def query_log_analytics(self, request: LogAnalyticsQueryRequest) -> LogAnalyticsQueryResponse:
-        workspace_id = request.workspace_id or self.settings.log_analytics_workspace_id
+        workspace_id = request.workspace_id or self.settings.resolve_workspace_id(request.subscription_id)
         if not workspace_id:
+            message = "Set AIOPS_LOG_ANALYTICS_WORKSPACE_ID, pass workspace_id, or configure "
+            message += "AIOPS_LOG_ANALYTICS_WORKSPACE_MAP and pass subscription_id."
             return LogAnalyticsQueryResponse(
                 status="not_configured",
                 workspace_id=None,
-                message="Set AIOPS_LOG_ANALYTICS_WORKSPACE_ID or pass workspace_id.",
+                message=message,
             )
         if not self.settings.enable_live_azure_integrations:
             return LogAnalyticsQueryResponse(
@@ -236,6 +248,7 @@ class AzureEnterpriseIntegrationClient:
         return self.query_log_analytics(
             LogAnalyticsQueryRequest(
                 query=query,
+                subscription_id=request.subscription_id,
                 workspace_id=request.workspace_id,
                 timespan_minutes=request.timespan_minutes,
             )

@@ -11,7 +11,7 @@ def test_integration_status_reports_enterprise_modes(tmp_path):
     settings = Settings(
         state_file=tmp_path / "state.json",
         azure_subscription_ids="sub-a,sub-b",
-        log_analytics_workspace_id="workspace-1",
+        log_analytics_workspace_map="sub-a=workspace-a,sub-b=workspace-b",
     )
     client = AzureEnterpriseIntegrationClient(settings)
 
@@ -19,23 +19,53 @@ def test_integration_status_reports_enterprise_modes(tmp_path):
 
     assert status.subscriptions_configured == 2
     assert status.log_analytics_configured is True
+    assert status.log_analytics_workspace_mappings_configured == 2
     assert "Azure Monitor Action Group webhook" in status.supported_ingestion_modes
     assert "Microsoft.ContainerService/managedClusters" in status.supported_resource_types
 
 
-def test_log_analytics_query_is_configuration_only_until_live_enabled(tmp_path):
+def test_log_analytics_query_uses_subscription_workspace_mapping(tmp_path):
     settings = Settings(
         state_file=tmp_path / "state.json",
-        log_analytics_workspace_id="workspace-1",
+        log_analytics_workspace_map="sub-a=workspace-a,sub-b=workspace-b",
         enable_live_azure_integrations=False,
     )
     client = AzureEnterpriseIntegrationClient(settings)
 
-    response = client.query_log_analytics(LogAnalyticsQueryRequest(query="AzureActivity | take 1"))
+    response = client.query_log_analytics(
+        LogAnalyticsQueryRequest(query="AzureActivity | take 1", subscription_id="sub-b")
+    )
 
     assert response.status == "configuration_only"
-    assert response.workspace_id == "workspace-1"
+    assert response.workspace_id == "workspace-b"
     assert response.rows == [{"query": "AzureActivity | take 1"}]
+
+
+def test_log_analytics_query_explicit_workspace_overrides_mapping(tmp_path):
+    settings = Settings(
+        state_file=tmp_path / "state.json",
+        log_analytics_workspace_map="sub-a=workspace-a",
+    )
+    client = AzureEnterpriseIntegrationClient(settings)
+
+    response = client.query_log_analytics(
+        LogAnalyticsQueryRequest(
+            query="AzureActivity | take 1",
+            subscription_id="sub-a",
+            workspace_id="override-workspace",
+        )
+    )
+
+    assert response.workspace_id == "override-workspace"
+
+
+def test_workspace_map_accepts_json(tmp_path):
+    settings = Settings(
+        state_file=tmp_path / "state.json",
+        log_analytics_workspace_map='{"sub-a":"workspace-a"}',
+    )
+
+    assert settings.resolve_workspace_id("sub-a") == "workspace-a"
 
 
 def test_resource_discovery_query_includes_vmss_and_aks():
@@ -83,4 +113,3 @@ def test_discover_resources_is_configuration_only_with_subscriptions(tmp_path):
     assert response.status == "configuration_only"
     assert response.subscriptions == ["sub-a"]
     assert "Resources" in response.query
-

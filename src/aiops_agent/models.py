@@ -161,6 +161,7 @@ class IntegrationStatus(BaseModel):
     live_azure_integrations_enabled: bool
     subscriptions_configured: int
     log_analytics_configured: bool
+    log_analytics_workspace_mappings_configured: int
     azure_openai_configured: bool
     supported_ingestion_modes: list[str]
     supported_resource_types: list[str]
@@ -168,6 +169,7 @@ class IntegrationStatus(BaseModel):
 
 class LogAnalyticsQueryRequest(BaseModel):
     query: str
+    subscription_id: str | None = None
     workspace_id: str | None = None
     timespan_minutes: int | None = None
 
@@ -202,6 +204,7 @@ class ResourceDiscoveryResponse(BaseModel):
 
 class AlertPollRequest(BaseModel):
     query: str | None = None
+    subscription_id: str | None = None
     workspace_id: str | None = None
     timespan_minutes: int | None = None
     max_alerts: int = 50

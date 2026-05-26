@@ -51,7 +51,22 @@ Invoke-RestMethod `
 For real Azure estates, connect existing alerts in two ways:
 
 1. Configure an Azure Monitor Action Group webhook that posts common alert schema payloads to `/alerts/azure-monitor`.
-2. Configure Log Analytics pull mode with `AIOPS_LOG_ANALYTICS_WORKSPACE_ID` and call `/integrations/log-analytics/poll-alerts` on a schedule.
+2. Configure Log Analytics pull mode and call `/integrations/log-analytics/poll-alerts` on a schedule.
+
+For one workspace per subscription, use a mapping:
+
+```env
+AIOPS_AZURE_SUBSCRIPTION_IDS=sub-a,sub-b
+AIOPS_LOG_ANALYTICS_WORKSPACE_MAP=sub-a=workspace-a,sub-b=workspace-b
+```
+
+You can also use JSON:
+
+```env
+AIOPS_LOG_ANALYTICS_WORKSPACE_MAP={"sub-a":"workspace-a","sub-b":"workspace-b"}
+```
+
+`AIOPS_LOG_ANALYTICS_WORKSPACE_ID` remains available as a default fallback workspace.
 
 Discover existing infrastructure across subscriptions:
 
@@ -69,8 +84,18 @@ Run KQL against a workspace:
 Invoke-RestMethod `
   -Method Post `
   -ContentType "application/json" `
-  -Body '{"query":"AzureActivity | take 10"}' `
+  -Body '{"subscription_id":"sub-a","query":"AzureActivity | take 10"}' `
   -Uri http://127.0.0.1:8000/integrations/log-analytics/query
+```
+
+Poll a subscription workspace for alert-like signals:
+
+```powershell
+Invoke-RestMethod `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"subscription_id":"sub-a","max_alerts":25}' `
+  -Uri http://127.0.0.1:8000/integrations/log-analytics/poll-alerts
 ```
 
 Set `AIOPS_ENABLE_LIVE_AZURE_INTEGRATIONS=true` only after authenticating with Azure CLI locally or assigning managed identity/RBAC in Azure.
